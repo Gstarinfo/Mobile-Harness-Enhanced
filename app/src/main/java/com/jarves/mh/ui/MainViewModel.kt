@@ -179,6 +179,7 @@ data class AppUiState(
     val openedFilePath: String? = null,
     val openedFileContent: String? = null,
     val fileContentLoading: Boolean = false,
+    val openedFileEditing: Boolean = false,
     val messages: List<ChatMessage> = listOf(
         ChatMessage(fromUser = false, text = "Hi! Tell me what you want to build or change."),
     ),
@@ -2739,6 +2740,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun exportSingleFile(path: String, uri: Uri) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        if (current.isRunning || current.projectTerminalRunning) {
+            _state.update { it.copy(toastMessage = "Stop the running task before exporting") }
+            return
+        }
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val root = projectWorkspaceRoot(project)
+                    val file = resolveWorkspaceFile(root, path)
+                    require(file.isFile) { "Target is not a regular file" }
+                    val output = getApplication<Application>().contentResolver.openOutputStream(uri)
+                        ?: error("The selected location could not be opened")
+                    output.buffered().use { out ->
+                        file.inputStream().buffered().use { input ->
+                            input.copyTo(out)
+                        }
+                    }
+                    file.name
+                }
+            }
+            _state.update {
+                it.copy(
+                    toastMessage = result.fold(
+                        onSuccess = { fileName -> "$fileName exported" },
+                        onFailure = { error -> "Export failed: ${error.message ?: "Unknown error"}" },
+                    ),
+                )
+            }
+        }
+    }
+
     fun createChat() {
         val project = _state.value.activeProject ?: return
         if (_state.value.isRunning) return
@@ -2806,10 +2841,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openFile(entry: WorkspaceEntry) {
+    fun openFile(entry: WorkspaceEntry, startInEditMode: Boolean = false) {
         if (entry.isDirectory) return
         val project = _state.value.activeProject ?: return
-        _state.update { it.copy(openedFilePath = entry.path, openedFileContent = null, fileContentLoading = true) }
+        _state.update {
+            it.copy(
+                openedFilePath = entry.path,
+                openedFileContent = null,
+                fileContentLoading = true,
+                openedFileEditing = startInEditMode,
+            )
+        }
         viewModelScope.launch {
             val content = withContext(Dispatchers.IO) {
                 val file = File(projectWorkspaceRoot(project), entry.path)
@@ -2830,7 +2872,82 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun closeFile() {
-        _state.update { it.copy(openedFilePath = null, openedFileContent = null, fileContentLoading = false) }
+        _state.update {
+            it.copy(
+                openedFilePath = null,
+                openedFileContent = null,
+                fileContentLoading = false,
+                openedFileEditing = false,
+            )
+        }
+    }
+
+    fun setOpenedFileEditing(editing: Boolean) {
+        _state.update { it.copy(openedFileEditing = editing) }
+    }
+
+    fun saveWorkspaceFile(path: String, content: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val root = projectWorkspaceRoot(project)
+                    val file = resolveWorkspaceFile(root, path)
+                    require(!file.isDirectory) { "Target is a directory" }
+                    file.parentFile?.mkdirs()
+                    file.writeText(content)
+                    file.name
+                }
+            }
+            result.onSuccess { fileName ->
+                _state.update {
+                    it.copy(
+                        openedFileContent = content,
+                        toastMessage = "$fileName saved",
+                    )
+                }
+                refreshProjectFiles()
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(toastMessage = "Save failed: ${error.message ?: "Unknown error"}")
+                }
+            }
+        }
+    }
+
+    fun deleteWorkspaceFile(path: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val root = projectWorkspaceRoot(project)
+                    val file = resolveWorkspaceFile(root, path)
+                    require(file.exists()) { "File does not exist" }
+                    require(file != root.canonicalFile) { "Cannot delete project root" }
+                    val name = file.name
+                    if (file.isDirectory) {
+                        file.deleteRecursively()
+                    } else {
+                        file.delete()
+                    }
+                    name
+                }
+            }
+            if (_state.value.openedFilePath == path) {
+                closeFile()
+            }
+            refreshProjectFiles()
+            _state.update {
+                it.copy(
+                    toastMessage = result.fold(
+                        onSuccess = { fileName -> "$fileName deleted" },
+                        onFailure = { error -> "Delete failed: ${error.message ?: "Unknown error"}" },
+                    ),
+                )
+            }
+        }
     }
 
 
@@ -3551,4 +3668,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val TEST_OPENROUTER_BASE_URL = "https://openrouter.ai/api"
         private const val TEST_OPENROUTER_MODEL = "stealth/ox-alpha"
     }
+}
+
+internal fun resolveWorkspaceFile(workspaceRoot: File, relativePath: String): File {
+    val root = workspaceRoot.canonicalFile
+    val file = File(root, relativePath).canonicalFile
+    require(file.toPath().startsWith(root.toPath())) { "Path outside project workspace" }
+    return file
 }

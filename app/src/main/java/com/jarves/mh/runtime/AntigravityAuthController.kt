@@ -48,10 +48,24 @@ class AntigravityAuthController(
         if (process?.isAlive == true) return@withContext
         if (!installer.isAgentInstalled(com.jarves.mh.model.AgentKind.ANTIGRAVITY)) {
             mutableState.value = AntigravityAuthState(
-                AntigravityAuthStatus.ERROR,
-                message = "Install Antigravity CLI before signing in.",
+                AntigravityAuthStatus.STARTING,
+                message = "Installing Antigravity CLI…",
             )
-            return@withContext
+            val installResult = runCatching {
+                installer.ensureAgentInstalled(com.jarves.mh.model.AgentKind.ANTIGRAVITY) { progress ->
+                    mutableState.value = AntigravityAuthState(
+                        AntigravityAuthStatus.STARTING,
+                        message = progress.message,
+                    )
+                }
+            }
+            if (installResult.isFailure) {
+                mutableState.value = AntigravityAuthState(
+                    AntigravityAuthStatus.ERROR,
+                    message = installResult.exceptionOrNull()?.message ?: "Failed to install Antigravity CLI.",
+                )
+                return@withContext
+            }
         }
         mutableState.value = AntigravityAuthState(AntigravityAuthStatus.STARTING, message = "Starting Google sign-in…")
         codeSubmitted = false

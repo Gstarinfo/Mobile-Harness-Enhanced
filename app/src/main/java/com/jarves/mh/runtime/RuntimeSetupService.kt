@@ -345,7 +345,7 @@ class RuntimeSetupService : Service() {
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
         wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "com.jarves.mh:runtime-setup")
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:runtime-setup")
             .apply { acquire(MAX_WAKE_LOCK_MS) }
     }
 

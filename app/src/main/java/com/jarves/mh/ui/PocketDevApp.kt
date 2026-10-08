@@ -105,8 +105,10 @@ import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Preview
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
@@ -333,6 +335,9 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onRefreshFiles = viewModel::refreshProjectFiles,
             onOpenFile = viewModel::openFile,
             onCloseFile = viewModel::closeFile,
+            onSaveFile = viewModel::saveWorkspaceFile,
+            onDeleteFile = viewModel::deleteWorkspaceFile,
+            onExportFile = viewModel::exportSingleFile,
             onUndoChanges = viewModel::undoLastChanges,
             onKeepChanges = viewModel::keepLastChanges,
             onUndoFileChange = viewModel::undoFileChange,
@@ -3814,8 +3819,11 @@ private fun WorkspaceScreen(
     onStop: () -> Unit,
     onApproval: (Boolean) -> Unit,
     onRefreshFiles: () -> Unit,
-    onOpenFile: (WorkspaceEntry) -> Unit,
+    onOpenFile: (WorkspaceEntry, Boolean) -> Unit,
     onCloseFile: () -> Unit,
+    onSaveFile: (String, String) -> Unit,
+    onDeleteFile: (String) -> Unit,
+    onExportFile: (String, Uri) -> Unit,
     onUndoChanges: () -> Unit,
     onKeepChanges: () -> Unit,
     onUndoFileChange: (String) -> Unit,
@@ -3846,6 +3854,17 @@ private fun WorkspaceScreen(
     val exportProjectLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
         onResult = { uri -> if (uri != null) onExportProject(uri) },
+    )
+    var pendingExportPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val exportFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("*/*"),
+        onResult = { uri ->
+            val path = pendingExportPath
+            if (uri != null && path != null) {
+                onExportFile(path, uri)
+            }
+            pendingExportPath = null
+        },
     )
     val attachmentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
@@ -3907,17 +3926,22 @@ private fun WorkspaceScreen(
 
     // If a file is open, show the FileViewerScreen on top
     if (state.openedFilePath != null) {
-        BackHandler(onBack = {
-            onCloseFile()
-            selectedTab = WorkspaceTab.FILES
-        })
         FileViewerScreen(
             filePath = state.openedFilePath,
             content = state.openedFileContent,
             loading = state.fileContentLoading,
+            initialEditMode = state.openedFileEditing,
             onClose = {
                 onCloseFile()
                 selectedTab = WorkspaceTab.FILES
+            },
+            onSave = { newContent ->
+                onSaveFile(state.openedFilePath, newContent)
+            },
+            onExport = {
+                val fileName = state.openedFilePath.substringAfterLast('/')
+                pendingExportPath = state.openedFilePath
+                exportFileLauncher.launch(fileName)
             },
         )
         return
@@ -4076,6 +4100,11 @@ private fun WorkspaceScreen(
                     onExport = {
                         exportProjectLauncher.launch("${state.activeProject?.slug ?: "project"}.zip")
                     },
+                    onExportFile = { entry ->
+                        pendingExportPath = entry.path
+                        exportFileLauncher.launch(entry.name)
+                    },
+                    onDeleteFile = onDeleteFile,
                 )
                 WorkspaceTab.TERMINAL -> TerminalScreen(
                     lines = state.projectTerminalLines,
@@ -4172,6 +4201,9 @@ private fun FileViewerScreen(
     content: String?,
     loading: Boolean,
     onClose: () -> Unit,
+    initialEditMode: Boolean = false,
+    onSave: (String) -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     val fileName = filePath.substringAfterLast('/')
     val ext = fileName.substringAfterLast('.', "")
@@ -4180,20 +4212,114 @@ private fun FileViewerScreen(
     val scope = rememberCoroutineScope()
     var copied by remember { mutableStateOf(false) }
 
+    val isTruncated = content?.endsWith("\n\n[File truncated — too large to display fully]") == true
+    var isEditing by rememberSaveable(filePath) { mutableStateOf(initialEditMode && !isTruncated) }
+    var editBuffer by remember(content) { mutableStateOf(content.orEmpty()) }
+    val hasUnsavedChanges = !isTruncated && content != null && editBuffer != content
+    var showDiscardDialog by remember { mutableStateOf(false) }
+
+    fun attemptClose() {
+        if (isEditing && hasUnsavedChanges) {
+            showDiscardDialog = true
+        } else {
+            onClose()
+        }
+    }
+
+    BackHandler(onBack = ::attemptClose)
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text("Unsaved changes") },
+            text = { Text("You have unsaved changes in \"$fileName\". Do you want to discard them or save before closing?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onSave(editBuffer)
+                        showDiscardDialog = false
+                        onClose()
+                    },
+                ) {
+                    Text("Save & close")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        showDiscardDialog = false
+                        onClose()
+                    }) {
+                        Text("Discard", color = MaterialTheme.colorScheme.error)
+                    }
+                    TextButton(onClick = { showDiscardDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text(fileName, fontWeight = FontWeight.SemiBold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(fileName, fontWeight = FontWeight.SemiBold)
+                            if (isEditing) {
+                                Spacer(Modifier.width(6.dp))
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    shape = RoundedCornerShape(4.dp),
+                                ) {
+                                    Text(
+                                        "EDITING",
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                        }
                         Text(filePath, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close file") }
+                    IconButton(onClick = ::attemptClose) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close file")
+                    }
                 },
                 actions = {
-                    if (!content.isNullOrEmpty()) {
+                    IconButton(onClick = onExport) {
+                        Icon(Icons.Default.Download, "Export single file", tint = PocketOrange)
+                    }
+
+                    if (!isTruncated && content != null) {
+                        if (isEditing) {
+                            IconButton(
+                                onClick = {
+                                    onSave(editBuffer)
+                                },
+                            ) {
+                                Icon(
+                                    Icons.Default.Save,
+                                    "Save changes",
+                                    tint = if (hasUnsavedChanges) PocketOrange else MaterialTheme.colorScheme.onSurface,
+                                )
+                            }
+                            IconButton(onClick = { isEditing = false }) {
+                                Icon(Icons.Default.Visibility, "View mode")
+                            }
+                        } else {
+                            IconButton(onClick = { isEditing = true }) {
+                                Icon(Icons.Default.Edit, "Edit file")
+                            }
+                        }
+                    }
+
+                    if (!isEditing && !content.isNullOrEmpty()) {
                         IconButton(onClick = {
                             clipboard.setText(AnnotatedString(content))
                             copied = true
@@ -4210,6 +4336,35 @@ private fun FileViewerScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
+        bottomBar = {
+            if (isEditing) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            if (hasUnsavedChanges) "● Unsaved changes" else "✓ Saved",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (hasUnsavedChanges) PocketOrange else PocketGreen,
+                        )
+                        Text(
+                            "${editBuffer.lines().size} lines · ${editBuffer.length} chars",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
@@ -4220,6 +4375,29 @@ private fun FileViewerScreen(
                 }
                 content == null -> {
                     EmptyState(Icons.Default.Description, "No content", "The file could not be read.")
+                }
+                isEditing -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF0D1117)),
+                    ) {
+                        BasicTextField(
+                            value = editBuffer,
+                            onValueChange = { editBuffer = it },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(16.dp),
+                            textStyle = TextStyle(
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                color = Color(0xFFE2E8F0),
+                            ),
+                            cursorBrush = SolidColor(PocketOrange),
+                        )
+                    }
                 }
                 isMarkdown -> {
                     LazyColumn(
@@ -4251,7 +4429,7 @@ private fun FileViewerScreen(
                                     modifier = Modifier
                                         .width(42.dp)
                                         .padding(start = 8.dp, end = 6.dp),
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontFamily = FontFamily.Monospace,
                                     fontSize = 12.sp,
                                     color = Color(0xFF4A5568),
                                     textAlign = TextAlign.End,
@@ -4261,7 +4439,7 @@ private fun FileViewerScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(end = 12.dp),
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontFamily = FontFamily.Monospace,
                                     fontSize = 13.sp,
                                     lineHeight = 19.sp,
                                     color = Color(0xFFE2E8F0),
@@ -4275,16 +4453,25 @@ private fun FileViewerScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun FilesTab(
     files: List<WorkspaceEntry>,
     loading: Boolean,
     suggestedProjectRoot: String?,
     onRefresh: () -> Unit,
-    onOpenFile: (WorkspaceEntry) -> Unit,
+    onOpenFile: (WorkspaceEntry, Boolean) -> Unit,
     onUseSuggestedProjectRoot: () -> Unit,
     onExport: () -> Unit,
+    onExportFile: (WorkspaceEntry) -> Unit,
+    onDeleteFile: (String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    var selectedPathForOptions by rememberSaveable { mutableStateOf<String?>(null) }
+    var fileToDelete by remember { mutableStateOf<WorkspaceEntry?>(null) }
+    val selectedFileForOptions = files.firstOrNull { it.path == selectedPathForOptions }
+
     var expandedDirectories by rememberSaveable { mutableStateOf(emptyList<String>()) }
     LaunchedEffect(files.map { it.path }) {
         val directories = files.asSequence().filter { it.isDirectory }.map { it.path }.toSet()
@@ -4300,6 +4487,61 @@ private fun FilesTab(
     val directChildCounts = files.filter { candidate ->
         candidate.path.contains('/')
     }.groupingBy { candidate -> candidate.path.substringBeforeLast('/') }.eachCount()
+
+    if (selectedFileForOptions != null) {
+        val entry = selectedFileForOptions
+        FileOptionsBottomSheet(
+            entry = entry,
+            onDismiss = { selectedPathForOptions = null },
+            onExport = {
+                selectedPathForOptions = null
+                onExportFile(entry)
+            },
+            onEdit = {
+                selectedPathForOptions = null
+                onOpenFile(entry, true)
+            },
+            onView = {
+                selectedPathForOptions = null
+                onOpenFile(entry, false)
+            },
+            onCopyPath = {
+                selectedPathForOptions = null
+                clipboard.setText(AnnotatedString(entry.path))
+                Toast.makeText(context, "Path copied: ${entry.path}", Toast.LENGTH_SHORT).show()
+            },
+            onDelete = {
+                selectedPathForOptions = null
+                fileToDelete = entry
+            },
+        )
+    }
+
+    if (fileToDelete != null) {
+        val target = fileToDelete!!
+        AlertDialog(
+            onDismissRequest = { fileToDelete = null },
+            title = { Text("Delete ${if (target.isDirectory) "folder" else "file"}?") },
+            text = { Text("Are you sure you want to delete \"${target.name}\"? This cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val path = target.path
+                        fileToDelete = null
+                        onDeleteFile(path)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { fileToDelete = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 
     LazyColumn(contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
@@ -4364,19 +4606,26 @@ private fun FilesTab(
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable {
-                        if (entry.isDirectory) {
-                            expandedDirectories = if (entry.path in expandedSet) {
-                                expandedDirectories.filterNot { it == entry.path || it.startsWith("${entry.path}/") }
+                    .combinedClickable(
+                        onClick = {
+                            if (entry.isDirectory) {
+                                expandedDirectories = if (entry.path in expandedSet) {
+                                    expandedDirectories.filterNot { it == entry.path || it.startsWith("${entry.path}/") }
+                                } else {
+                                    expandedDirectories + entry.path
+                                }
                             } else {
-                                expandedDirectories + entry.path
+                                onOpenFile(entry, false)
                             }
-                        } else {
-                            onOpenFile(entry)
-                        }
-                    }
+                        },
+                        onLongClick = {
+                            if (!entry.isDirectory) {
+                                selectedPathForOptions = entry.path
+                            }
+                        },
+                    )
                     .padding(start = (entry.depth * 20).dp)
-                    .padding(vertical = 10.dp),
+                    .padding(vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (entry.isDirectory) {
@@ -4400,20 +4649,172 @@ private fun FilesTab(
                     color = if (!entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 )
                 if (!entry.isDirectory) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(6.dp))
                     Text(formatFileSize(entry.sizeBytes), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        null,
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Spacer(Modifier.width(2.dp))
+                    IconButton(
+                        onClick = { selectedPathForOptions = entry.path },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "Options for ${entry.name}",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
             if (!entry.isDirectory) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(start = (entry.depth * 20 + 42).dp))
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FileOptionsBottomSheet(
+    entry: WorkspaceEntry,
+    onDismiss: () -> Unit,
+    onExport: () -> Unit,
+    onEdit: () -> Unit,
+    onView: () -> Unit,
+    onCopyPath: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.size(42.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Description,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = entry.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = "${entry.path} · ${formatFileSize(entry.sizeBytes)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+
+            FileActionItem(
+                icon = Icons.Default.Download,
+                title = "Export file",
+                subtitle = "Save single file to device storage (SAF)",
+                iconTint = PocketOrange,
+                onClick = onExport,
+            )
+
+            FileActionItem(
+                icon = Icons.Default.Edit,
+                title = "Edit file",
+                subtitle = "Modify code or text and save changes",
+                iconTint = MaterialTheme.colorScheme.primary,
+                onClick = onEdit,
+            )
+
+            FileActionItem(
+                icon = Icons.Default.Visibility,
+                title = "View file",
+                subtitle = "Inspect file with syntax display",
+                onClick = onView,
+            )
+
+            FileActionItem(
+                icon = Icons.Default.ContentCopy,
+                title = "Copy path",
+                subtitle = entry.path,
+                onClick = onCopyPath,
+            )
+
+            FileActionItem(
+                icon = Icons.Default.Delete,
+                title = "Delete file",
+                subtitle = "Permanently remove from workspace",
+                iconTint = MaterialTheme.colorScheme.error,
+                textColor = MaterialTheme.colorScheme.error,
+                onClick = onDelete,
+            )
+        }
+    }
+}
+
+@Composable
+private fun FileActionItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    iconTint: Color = MaterialTheme.colorScheme.onSurface,
+    textColor: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = iconTint,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                fontWeight = FontWeight.Medium,
+                color = textColor,
+                fontSize = 15.sp,
+            )
+            Text(
+                subtitle,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

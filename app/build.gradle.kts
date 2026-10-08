@@ -70,7 +70,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.jarves.mh"
+        val configuredAppId = providers.gradleProperty("appId").orNull ?: "com.jarves.mh.enhanced"
+        applicationId = configuredAppId
         minSdk = 28
         // The direct APK retains the proven target-28 PRoot execution path. The
         // Play build targets current Android while its runtime path is validated.
@@ -83,6 +84,12 @@ android {
         providers.gradleProperty("appVersionName").orNull?.let { versionName = it }
 
         ndk.abiFilters += "arm64-v8a"
+
+        externalNativeBuild {
+            cmake {
+                arguments("-DAPP_APPLICATION_ID=$configuredAppId")
+            }
+        }
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
