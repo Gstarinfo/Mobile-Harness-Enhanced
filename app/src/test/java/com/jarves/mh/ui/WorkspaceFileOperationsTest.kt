@@ -145,4 +145,25 @@ class WorkspaceFileOperationsTest {
         assertEquals("10.0 MB", formatFileSize(10 * 1024 * 1024L))
         assertEquals("1.50 GB", formatFileSize((1.5 * 1024 * 1024 * 1024).toLong()))
     }
+
+    @Test
+    fun `determineOpenWithConfig configures APK for external installer`() {
+        val config = determineOpenWithConfig("app-debug.apk")
+        assertEquals("application/vnd.android.package-archive", config.mimeType)
+        assertTrue(config.isApk)
+        assertFalse(config.allowWrite)
+    }
+
+    @Test
+    fun `determineOpenWithConfig configures source code and files for external editing`() {
+        val ktConfig = determineOpenWithConfig("MainActivity.kt")
+        assertEquals("text/plain", ktConfig.mimeType)
+        assertFalse(ktConfig.isApk)
+        assertTrue(ktConfig.allowWrite)
+
+        val jsonConfig = determineOpenWithConfig("settings.json")
+        assertEquals("application/json", jsonConfig.mimeType)
+        assertFalse(jsonConfig.isApk)
+        assertTrue(jsonConfig.allowWrite)
+    }
 }

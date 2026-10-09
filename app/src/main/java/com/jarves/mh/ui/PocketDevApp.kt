@@ -76,6 +76,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -341,6 +342,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onDeleteFile = viewModel::deleteWorkspaceFile,
             onExportFile = viewModel::exportSingleFile,
             onShareFile = viewModel::shareSingleFile,
+            onOpenWithFile = viewModel::openWithFile,
+            onReloadOpenedFile = viewModel::reloadOpenedFile,
             onInstallApk = viewModel::installWorkspaceApk,
             onUndoChanges = viewModel::undoLastChanges,
             onKeepChanges = viewModel::keepLastChanges,
@@ -3843,6 +3846,8 @@ private fun WorkspaceScreen(
     onDeleteFile: (String) -> Unit,
     onExportFile: (String, Uri) -> Unit,
     onShareFile: (String) -> Unit = {},
+    onOpenWithFile: (String) -> Unit = {},
+    onReloadOpenedFile: () -> Unit = {},
     onInstallApk: (String) -> Unit = {},
     onUndoChanges: () -> Unit,
     onKeepChanges: () -> Unit,
@@ -3950,6 +3955,7 @@ private fun WorkspaceScreen(
             filePath = state.openedFilePath,
             content = state.openedFileContent,
             loading = state.fileContentLoading,
+            exportLoading = state.exportLoading,
             initialEditMode = state.openedFileEditing,
             onClose = {
                 onCloseFile()
@@ -3963,8 +3969,31 @@ private fun WorkspaceScreen(
                 pendingExportPath = state.openedFilePath
                 exportFileLauncher.launch(fileName to mimeTypeForFileName(fileName))
             },
+            onOpenWith = {
+                onOpenWithFile(state.openedFilePath)
+            },
+            onReload = onReloadOpenedFile,
         )
+        if (state.exportLoading) {
+            ExportProgressDialog(
+                fileName = state.exportFileName.orEmpty(),
+                message = state.exportMessage ?: "Exporting file…",
+                progress = state.exportProgress,
+                bytesWritten = state.exportBytes?.first ?: 0L,
+                totalBytes = state.exportBytes?.second ?: -1L,
+            )
+        }
         return
+    }
+
+    if (state.exportLoading) {
+        ExportProgressDialog(
+            fileName = state.exportFileName.orEmpty(),
+            message = state.exportMessage ?: "Exporting file…",
+            progress = state.exportProgress,
+            bytesWritten = state.exportBytes?.first ?: 0L,
+            totalBytes = state.exportBytes?.second ?: -1L,
+        )
     }
 
     if (showChats) {
@@ -4113,6 +4142,7 @@ private fun WorkspaceScreen(
                 WorkspaceTab.FILES -> FilesTab(
                     files = state.workspaceFiles,
                     loading = state.filesLoading,
+                    exportLoading = state.exportLoading,
                     suggestedProjectRoot = state.suggestedProjectRoot,
                     onRefresh = onRefreshFiles,
                     onOpenFile = onOpenFile,
@@ -4125,6 +4155,7 @@ private fun WorkspaceScreen(
                         exportFileLauncher.launch(entry.name to mimeTypeForFileName(entry.name))
                     },
                     onShareFile = onShareFile,
+                    onOpenWithFile = onOpenWithFile,
                     onInstallApk = onInstallApk,
                     onDeleteFile = onDeleteFile,
                 )
@@ -4222,10 +4253,13 @@ private fun FileViewerScreen(
     filePath: String,
     content: String?,
     loading: Boolean,
+    exportLoading: Boolean = false,
     onClose: () -> Unit,
     initialEditMode: Boolean = false,
     onSave: (String) -> Unit = {},
     onExport: () -> Unit = {},
+    onOpenWith: () -> Unit = {},
+    onReload: () -> Unit = {},
 ) {
     val fileName = filePath.substringAfterLast('/')
     val ext = fileName.substringAfterLast('.', "")
@@ -4314,7 +4348,23 @@ private fun FileViewerScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = onExport) {
+                    if (exportLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.padding(12.dp).size(20.dp),
+                            strokeWidth = 2.dp,
+                            color = PocketOrange,
+                        )
+                    }
+
+                    IconButton(onClick = onOpenWith, enabled = !exportLoading) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, "Open with another app", tint = PocketOrange)
+                    }
+
+                    IconButton(onClick = onReload, enabled = !exportLoading) {
+                        Icon(Icons.Default.Refresh, "Reload from disk")
+                    }
+
+                    IconButton(onClick = onExport, enabled = !exportLoading) {
                         Icon(Icons.Default.Download, "Export single file", tint = PocketOrange)
                     }
 
@@ -4480,6 +4530,7 @@ private fun FileViewerScreen(
 private fun FilesTab(
     files: List<WorkspaceEntry>,
     loading: Boolean,
+    exportLoading: Boolean = false,
     suggestedProjectRoot: String?,
     onRefresh: () -> Unit,
     onOpenFile: (WorkspaceEntry, Boolean) -> Unit,
@@ -4487,6 +4538,7 @@ private fun FilesTab(
     onExport: () -> Unit,
     onExportFile: (WorkspaceEntry) -> Unit,
     onShareFile: (String) -> Unit = {},
+    onOpenWithFile: (String) -> Unit = {},
     onInstallApk: (String) -> Unit = {},
     onDeleteFile: (String) -> Unit,
 ) {
@@ -4520,6 +4572,10 @@ private fun FilesTab(
             onExport = {
                 selectedPathForOptions = null
                 onExportFile(entry)
+            },
+            onOpenWith = {
+                selectedPathForOptions = null
+                onOpenWithFile(entry.path)
             },
             onShare = {
                 selectedPathForOptions = null
@@ -4605,10 +4661,12 @@ private fun FilesTab(
                             Text("Collapse all", fontSize = 11.sp)
                         }
                     }
-                    if (!loading && files.any { !it.isDirectory }) {
+                    if (!loading && !exportLoading && files.any { !it.isDirectory }) {
                         IconButton(onClick = onExport) { Icon(Icons.Default.Download, "Export project as ZIP") }
                     }
-                    if (loading) {
+                    if (exportLoading) {
+                        CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp, color = PocketOrange)
+                    } else if (loading) {
                         CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
                     } else {
                         IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Refresh files") }
@@ -4712,6 +4770,7 @@ private fun FileOptionsBottomSheet(
     entry: WorkspaceEntry,
     onDismiss: () -> Unit,
     onExport: () -> Unit,
+    onOpenWith: () -> Unit,
     onShare: () -> Unit,
     onInstallApk: (() -> Unit)? = null,
     onEdit: () -> Unit,
@@ -4777,6 +4836,18 @@ private fun FileOptionsBottomSheet(
                 subtitle = "Save single file to device storage (SAF)",
                 iconTint = PocketOrange,
                 onClick = onExport,
+            )
+
+            FileActionItem(
+                icon = Icons.AutoMirrored.Filled.OpenInNew,
+                title = "Open with...",
+                subtitle = if (entry.name.endsWith(".apk", ignoreCase = true)) {
+                    "Install or inspect with another app"
+                } else {
+                    "Open in external editor or viewer"
+                },
+                iconTint = MaterialTheme.colorScheme.primary,
+                onClick = onOpenWith,
             )
 
             FileActionItem(
@@ -4871,6 +4942,104 @@ private fun FileActionItem(
             )
         }
     }
+}
+
+@Composable
+private fun ExportProgressDialog(
+    fileName: String,
+    message: String,
+    progress: Float,
+    bytesWritten: Long,
+    totalBytes: Long,
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Default.Download,
+                    contentDescription = null,
+                    tint = PocketOrange,
+                    modifier = Modifier.size(24.dp),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = "Exporting",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (fileName.isNotBlank()) {
+                    Text(
+                        text = fileName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                if (totalBytes > 0L) {
+                    LinearProgressIndicator(
+                        progress = { progress.coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = PocketOrange,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "${formatFileSize(bytesWritten)} / ${formatFileSize(totalBytes)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "${(progress * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = PocketOrange,
+                        )
+                    }
+                } else {
+                    LinearProgressIndicator(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(4.dp)),
+                        color = PocketOrange,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                    )
+                    if (bytesWritten > 0L) {
+                        Text(
+                            text = "${formatFileSize(bytesWritten)} written",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {},
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(16.dp),
+    )
 }
 
 @Composable

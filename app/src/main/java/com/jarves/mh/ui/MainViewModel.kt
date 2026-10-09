@@ -1,6 +1,7 @@
 package com.jarves.mh.ui
 
 import android.app.Application
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -246,6 +247,11 @@ data class AppUiState(
     val appUpdateDownloadedBytes: Long = 0L,
     val appUpdateTotalBytes: Long = -1L,
     val appUpdateError: String? = null,
+    val exportLoading: Boolean = false,
+    val exportFileName: String? = null,
+    val exportMessage: String? = null,
+    val exportProgress: Float = 0f,
+    val exportBytes: Pair<Long, Long>? = null,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -2692,49 +2698,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(toastMessage = "Stop the running task before exporting") }
             return
         }
+        val zipName = "${project.slug}.zip"
         viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    exportLoading = true,
+                    exportFileName = zipName,
+                    exportMessage = "Scanning files for $zipName…",
+                    exportProgress = 0f,
+                    exportBytes = null,
+                )
+            }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val root = projectWorkspaceRoot(project)
                     val rootPath = root.canonicalFile.toPath()
                     val output = getApplication<Application>().contentResolver.openOutputStream(uri)
                         ?: error("The selected location could not be opened")
+
+                    val entriesToZip = mutableListOf<File>()
+                    root.walkTopDown()
+                        .onEnter { directory ->
+                            if (directory == root) {
+                                true
+                            } else {
+                                val relative = directory.relativeTo(root).invariantSeparatorsPath
+                                !isExportExcludedPath(relative) &&
+                                    !Files.isSymbolicLink(directory.toPath()) &&
+                                    runCatching { directory.canonicalFile.toPath().startsWith(rootPath) }.getOrDefault(false)
+                            }
+                        }
+                        .drop(1)
+                        .filter { file ->
+                            !Files.isSymbolicLink(file.toPath()) &&
+                                runCatching { file.canonicalFile.toPath().startsWith(rootPath) }.getOrDefault(false) &&
+                                !isExportExcludedPath(file.relativeTo(root).invariantSeparatorsPath)
+                        }
+                        .forEach { entriesToZip.add(it) }
+
+                    val totalBytes = entriesToZip.filter { it.isFile }.sumOf { it.length() }
+                    var bytesWritten = 0L
+                    var lastUpdateMillis = 0L
+
+                    fun updateZipProgress(written: Long) {
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastUpdateMillis > 80 || written == totalBytes) {
+                            lastUpdateMillis = now
+                            val frac = if (totalBytes > 0L) (written.toFloat() / totalBytes).coerceIn(0f, 1f) else 0f
+                            _state.update {
+                                it.copy(
+                                    exportProgress = frac,
+                                    exportBytes = written to totalBytes,
+                                    exportMessage = "Archiving $zipName (${formatFileSize(written)} / ${formatFileSize(totalBytes)})…",
+                                )
+                            }
+                        }
+                    }
+
                     output.buffered().use { stream ->
                         ZipOutputStream(stream).use { zip ->
                             zip.putNextEntry(ZipEntry("${project.slug}/"))
                             zip.closeEntry()
-                            root.walkTopDown()
-                                .onEnter { directory ->
-                                    if (directory == root) {
-                                        true
-                                    } else {
-                                        val relative = directory.relativeTo(root).invariantSeparatorsPath
-                                        !isExportExcludedPath(relative) &&
-                                            !Files.isSymbolicLink(directory.toPath()) &&
-                                            runCatching { directory.canonicalFile.toPath().startsWith(rootPath) }.getOrDefault(false)
+                            val buffer = ByteArray(64 * 1024)
+                            for (file in entriesToZip) {
+                                val relative = file.relativeTo(root).invariantSeparatorsPath
+                                val entryName = "${project.slug}/$relative" + if (file.isDirectory) "/" else ""
+                                zip.putNextEntry(ZipEntry(entryName).apply { time = file.lastModified() })
+                                if (file.isFile) {
+                                    file.inputStream().buffered().use { input ->
+                                        var read: Int
+                                        while (input.read(buffer).also { read = it } != -1) {
+                                            zip.write(buffer, 0, read)
+                                            bytesWritten += read
+                                            updateZipProgress(bytesWritten)
+                                        }
                                     }
                                 }
-                                .drop(1)
-                                .filter { file ->
-                                    !Files.isSymbolicLink(file.toPath()) &&
-                                        runCatching { file.canonicalFile.toPath().startsWith(rootPath) }.getOrDefault(false) &&
-                                        !isExportExcludedPath(file.relativeTo(root).invariantSeparatorsPath)
-                                }
-                                .forEach { file ->
-                                    val relative = file.relativeTo(root).invariantSeparatorsPath
-                                    val entryName = "${project.slug}/$relative" + if (file.isDirectory) "/" else ""
-                                    zip.putNextEntry(ZipEntry(entryName).apply { time = file.lastModified() })
-                                    if (file.isFile) file.inputStream().buffered().use { it.copyTo(zip) }
-                                    zip.closeEntry()
-                                }
+                                zip.closeEntry()
+                            }
                         }
                     }
+                    bytesWritten
                 }
             }
             _state.update {
                 it.copy(
+                    exportLoading = false,
+                    exportFileName = null,
+                    exportMessage = null,
+                    exportProgress = 0f,
+                    exportBytes = null,
                     toastMessage = result.fold(
-                        onSuccess = { "${project.slug}.zip exported" },
+                        onSuccess = { bytes -> "$zipName exported (${formatFileSize(bytes)})" },
                         onFailure = { error -> "Export failed: ${error.message ?: "Unknown error"}" },
                     ),
                 )
@@ -2749,7 +2804,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update { it.copy(toastMessage = "Stop the running task before exporting") }
             return
         }
+        val initialName = path.substringAfterLast('/')
         viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    exportLoading = true,
+                    exportFileName = initialName,
+                    exportMessage = "Preparing to export $initialName…",
+                    exportProgress = 0f,
+                    exportBytes = null,
+                )
+            }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val root = projectWorkspaceRoot(project)
@@ -2758,7 +2823,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val fileLength = file.length()
                     val resolver = getApplication<Application>().contentResolver
 
+                    _state.update {
+                        it.copy(
+                            exportFileName = file.name,
+                            exportMessage = "Exporting ${file.name}…",
+                            exportBytes = 0L to fileLength,
+                            exportProgress = 0f,
+                        )
+                    }
+
                     var bytesWritten = 0L
+                    var lastUpdateMillis = 0L
+                    fun updateFileProgress(currentBytes: Long) {
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastUpdateMillis > 80 || currentBytes == fileLength) {
+                            lastUpdateMillis = now
+                            val frac = if (fileLength > 0L) (currentBytes.toFloat() / fileLength).coerceIn(0f, 1f) else 0f
+                            _state.update {
+                                it.copy(
+                                    exportProgress = frac,
+                                    exportBytes = currentBytes to fileLength,
+                                    exportMessage = "Exporting ${file.name} (${formatFileSize(currentBytes)} / ${formatFileSize(fileLength)})…",
+                                )
+                            }
+                        }
+                    }
+
                     val pfd = runCatching { resolver.openFileDescriptor(uri, "rwt") }.getOrNull()
                         ?: runCatching { resolver.openFileDescriptor(uri, "wt") }.getOrNull()
                         ?: runCatching { resolver.openFileDescriptor(uri, "w") }.getOrNull()
@@ -2772,6 +2862,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     while (fileIn.read(buffer).also { read = it } != -1) {
                                         fileOut.write(buffer, 0, read)
                                         bytesWritten += read
+                                        updateFileProgress(bytesWritten)
                                     }
                                     fileOut.flush()
                                     try {
@@ -2793,6 +2884,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 while (fileIn.read(buffer).also { read = it } != -1) {
                                     rawOut.write(buffer, 0, read)
                                     bytesWritten += read
+                                    updateFileProgress(bytesWritten)
                                 }
                                 rawOut.flush()
                             }
@@ -2800,13 +2892,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
 
                     check(bytesWritten == fileLength) {
-                        "Export incomplete: wrote $bytesWritten of $fileLength bytes"
+                        "Export incomplete: wrote ${formatFileSize(bytesWritten)} of ${formatFileSize(fileLength)}"
                     }
                     file.name to bytesWritten
                 }
             }
             _state.update {
                 it.copy(
+                    exportLoading = false,
+                    exportFileName = null,
+                    exportMessage = null,
+                    exportProgress = 0f,
+                    exportBytes = null,
                     toastMessage = result.fold(
                         onSuccess = { (fileName, size) -> "$fileName exported (${formatFileSize(size)})" },
                         onFailure = { error -> "Export failed: ${error.message ?: "Unknown error"}" },
@@ -2831,16 +2928,114 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     type = mimeType
                     putExtra(Intent.EXTRA_STREAM, uri)
                     putExtra(Intent.EXTRA_TITLE, file.name)
+                    clipData = ClipData.newRawUri(file.name, uri)
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 val chooser = Intent.createChooser(intent, "Share ${file.name}").apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    clipData = ClipData.newRawUri(file.name, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(chooser)
             }.onFailure { error ->
                 withContext(Dispatchers.Main) {
                     _state.update { it.copy(toastMessage = "Share failed: ${error.message ?: "Unknown error"}") }
                 }
+            }
+        }
+    }
+
+    fun openWithFile(path: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = projectWorkspaceRoot(project)
+                val file = resolveWorkspaceFile(root, path)
+                require(file.isFile) { "Target is not a regular file: ${file.name}" }
+                val context = getApplication<Application>()
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                val config = determineOpenWithConfig(file.name)
+
+                val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                    setDataAndType(uri, config.mimeType)
+                    clipData = ClipData.newRawUri(file.name, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (config.allowWrite) {
+                        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    }
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+
+                val extraIntents = mutableListOf<Intent>()
+                if (config.isApk) {
+                    extraIntents.add(
+                        Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                            setDataAndType(uri, "application/vnd.android.package-archive")
+                            clipData = ClipData.newRawUri(file.name, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                } else {
+                    extraIntents.add(
+                        Intent(Intent.ACTION_EDIT).apply {
+                            setDataAndType(uri, config.mimeType)
+                            clipData = ClipData.newRawUri(file.name, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                }
+
+                val chooserTitle = if (config.isApk) "Install or open ${file.name} with" else "Open ${file.name} with"
+                val chooser = Intent.createChooser(viewIntent, chooserTitle).apply {
+                    clipData = ClipData.newRawUri(file.name, uri)
+                    if (extraIntents.isNotEmpty()) {
+                        putExtra(Intent.EXTRA_INITIAL_INTENTS, extraIntents.toTypedArray())
+                    }
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    if (config.allowWrite) {
+                        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    }
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    val message = if (error is android.content.ActivityNotFoundException) {
+                        "No external app found to open ${path.substringAfterLast('/')}"
+                    } else {
+                        "Open with failed: ${error.message ?: "Unknown error"}"
+                    }
+                    _state.update { it.copy(toastMessage = message) }
+                }
+            }
+        }
+    }
+
+    fun reloadOpenedFile() {
+        val currentPath = _state.value.openedFilePath ?: return
+        val project = _state.value.activeProject ?: return
+        viewModelScope.launch {
+            val content = withContext(Dispatchers.IO) {
+                val file = File(projectWorkspaceRoot(project), currentPath)
+                runCatching {
+                    if (!file.exists()) {
+                        "File no longer exists"
+                    } else if (file.length() > 512_000L) {
+                        file.inputStream().use { stream ->
+                            val buf = ByteArray(512_000)
+                            val read = stream.read(buf)
+                            String(buf, 0, read)
+                        } + "\n\n[File truncated — too large to display fully]"
+                    } else {
+                        file.readText()
+                    }
+                }.getOrElse { "Could not read file: ${it.message}" }
+            }
+            _state.update {
+                it.copy(
+                    openedFileContent = content,
+                    toastMessage = "Reloaded ${currentPath.substringAfterLast('/')}",
+                )
             }
         }
     }
@@ -3800,4 +3995,20 @@ internal fun formatFileSize(bytes: Long): String {
     if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb)
     val gb = mb / 1024.0
     return String.format(java.util.Locale.US, "%.2f GB", gb)
+}
+
+internal data class OpenWithConfig(
+    val mimeType: String,
+    val allowWrite: Boolean,
+    val isApk: Boolean,
+)
+
+internal fun determineOpenWithConfig(fileName: String): OpenWithConfig {
+    val mimeType = mimeTypeForFileName(fileName)
+    val isApk = fileName.substringAfterLast('.', "").equals("apk", ignoreCase = true)
+    return OpenWithConfig(
+        mimeType = mimeType,
+        allowWrite = !isApk,
+        isApk = isApk,
+    )
 }
