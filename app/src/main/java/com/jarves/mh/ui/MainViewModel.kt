@@ -7,10 +7,12 @@ import android.provider.OpenableColumns
 import android.os.SystemClock
 import android.os.Build
 import android.system.Os
+import android.webkit.MimeTypeMap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import java.io.FileOutputStream
 import com.jarves.mh.BuildConfig
 import com.jarves.mh.data.ApiKeyVault
 import com.jarves.mh.data.ApiKeyInfo
@@ -2752,24 +2754,112 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching {
                     val root = projectWorkspaceRoot(project)
                     val file = resolveWorkspaceFile(root, path)
-                    require(file.isFile) { "Target is not a regular file" }
-                    val output = getApplication<Application>().contentResolver.openOutputStream(uri)
-                        ?: error("The selected location could not be opened")
-                    output.buffered().use { out ->
-                        file.inputStream().buffered().use { input ->
-                            input.copyTo(out)
+                    require(file.isFile) { "Target is not a regular file: ${file.name}" }
+                    val fileLength = file.length()
+                    val resolver = getApplication<Application>().contentResolver
+
+                    var bytesWritten = 0L
+                    val pfd = runCatching { resolver.openFileDescriptor(uri, "rwt") }.getOrNull()
+                        ?: runCatching { resolver.openFileDescriptor(uri, "wt") }.getOrNull()
+                        ?: runCatching { resolver.openFileDescriptor(uri, "w") }.getOrNull()
+
+                    if (pfd != null) {
+                        pfd.use { descriptor ->
+                            FileOutputStream(descriptor.fileDescriptor).use { fileOut ->
+                                file.inputStream().use { fileIn ->
+                                    val buffer = ByteArray(64 * 1024)
+                                    var read: Int
+                                    while (fileIn.read(buffer).also { read = it } != -1) {
+                                        fileOut.write(buffer, 0, read)
+                                        bytesWritten += read
+                                    }
+                                    fileOut.flush()
+                                    try {
+                                        descriptor.fileDescriptor.sync()
+                                    } catch (_: Throwable) {
+                                        // Some virtual file systems do not support sync, continue
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        val output = runCatching { resolver.openOutputStream(uri, "wt") }.getOrNull()
+                            ?: resolver.openOutputStream(uri, "w")
+                            ?: error("The selected location could not be opened")
+                        output.use { rawOut ->
+                            file.inputStream().use { fileIn ->
+                                val buffer = ByteArray(64 * 1024)
+                                var read: Int
+                                while (fileIn.read(buffer).also { read = it } != -1) {
+                                    rawOut.write(buffer, 0, read)
+                                    bytesWritten += read
+                                }
+                                rawOut.flush()
+                            }
                         }
                     }
-                    file.name
+
+                    check(bytesWritten == fileLength) {
+                        "Export incomplete: wrote $bytesWritten of $fileLength bytes"
+                    }
+                    file.name to bytesWritten
                 }
             }
             _state.update {
                 it.copy(
                     toastMessage = result.fold(
-                        onSuccess = { fileName -> "$fileName exported" },
+                        onSuccess = { (fileName, size) -> "$fileName exported (${formatFileSize(size)})" },
                         onFailure = { error -> "Export failed: ${error.message ?: "Unknown error"}" },
                     ),
                 )
+            }
+        }
+    }
+
+    fun shareSingleFile(path: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = projectWorkspaceRoot(project)
+                val file = resolveWorkspaceFile(root, path)
+                require(file.isFile) { "Target is not a regular file: ${file.name}" }
+                val context = getApplication<Application>()
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                val mimeType = mimeTypeForFileName(file.name)
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = mimeType
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_TITLE, file.name)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                val chooser = Intent.createChooser(intent, "Share ${file.name}").apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(chooser)
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    _state.update { it.copy(toastMessage = "Share failed: ${error.message ?: "Unknown error"}") }
+                }
+            }
+        }
+    }
+
+    fun installWorkspaceApk(path: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = projectWorkspaceRoot(project)
+                val file = resolveWorkspaceFile(root, path)
+                require(file.isFile && file.extension.equals("apk", ignoreCase = true) && file.length() > 0L) {
+                    "Not a valid APK: ${file.name}"
+                }
+                AndroidAppInstaller.install(getApplication(), file)
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    _state.update { it.copy(toastMessage = "Install failed: ${error.message ?: "Unknown error"}") }
+                }
             }
         }
     }
@@ -3675,4 +3765,39 @@ internal fun resolveWorkspaceFile(workspaceRoot: File, relativePath: String): Fi
     val file = File(root, relativePath).canonicalFile
     require(file.toPath().startsWith(root.toPath())) { "Path outside project workspace" }
     return file
+}
+
+internal fun mimeTypeForFileName(name: String): String {
+    val ext = name.substringAfterLast('.', "").lowercase()
+    if (ext.isEmpty()) return "*/*"
+    return when (ext) {
+        "apk" -> "application/vnd.android.package-archive"
+        "zip" -> "application/zip"
+        "tar" -> "application/x-tar"
+        "gz" -> "application/gzip"
+        "zst" -> "application/zstd"
+        "json" -> "application/json"
+        "pdf" -> "application/pdf"
+        "png" -> "image/png"
+        "jpg", "jpeg" -> "image/jpeg"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "svg" -> "image/svg+xml"
+        "mp4" -> "video/mp4"
+        "mp3" -> "audio/mpeg"
+        "txt", "md", "kt", "java", "py", "c", "cpp", "h", "hpp", "rs",
+        "go", "js", "ts", "jsx", "tsx", "html", "css", "xml", "gradle",
+        "properties", "yaml", "yml", "sh", "bat", "sql" -> "text/plain"
+        else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+    }
+}
+
+internal fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb)
+    val gb = mb / 1024.0
+    return String.format(java.util.Locale.US, "%.2f GB", gb)
 }

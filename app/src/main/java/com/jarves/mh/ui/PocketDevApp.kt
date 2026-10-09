@@ -18,7 +18,9 @@ import android.widget.Toast
 import com.jarves.mh.BuildConfig
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
@@ -338,6 +340,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onSaveFile = viewModel::saveWorkspaceFile,
             onDeleteFile = viewModel::deleteWorkspaceFile,
             onExportFile = viewModel::exportSingleFile,
+            onShareFile = viewModel::shareSingleFile,
+            onInstallApk = viewModel::installWorkspaceApk,
             onUndoChanges = viewModel::undoLastChanges,
             onKeepChanges = viewModel::keepLastChanges,
             onUndoFileChange = viewModel::undoFileChange,
@@ -3810,6 +3814,20 @@ private fun ReadOnlyProjectScreen(
     }
 }
 
+private class CreateCustomDocumentContract : ActivityResultContract<Pair<String, String>, Uri?>() {
+    override fun createIntent(context: Context, input: Pair<String, String>): Intent {
+        val (fileName, mimeType) = input
+        return Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE)
+            .setType(mimeType.ifBlank { "*/*" })
+            .putExtra(Intent.EXTRA_TITLE, fileName)
+    }
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Uri? {
+        return if (resultCode == android.app.Activity.RESULT_OK) intent?.data else null
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun WorkspaceScreen(
@@ -3824,6 +3842,8 @@ private fun WorkspaceScreen(
     onSaveFile: (String, String) -> Unit,
     onDeleteFile: (String) -> Unit,
     onExportFile: (String, Uri) -> Unit,
+    onShareFile: (String) -> Unit = {},
+    onInstallApk: (String) -> Unit = {},
     onUndoChanges: () -> Unit,
     onKeepChanges: () -> Unit,
     onUndoFileChange: (String) -> Unit,
@@ -3857,7 +3877,7 @@ private fun WorkspaceScreen(
     )
     var pendingExportPath by rememberSaveable { mutableStateOf<String?>(null) }
     val exportFileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("*/*"),
+        contract = CreateCustomDocumentContract(),
         onResult = { uri ->
             val path = pendingExportPath
             if (uri != null && path != null) {
@@ -3941,7 +3961,7 @@ private fun WorkspaceScreen(
             onExport = {
                 val fileName = state.openedFilePath.substringAfterLast('/')
                 pendingExportPath = state.openedFilePath
-                exportFileLauncher.launch(fileName)
+                exportFileLauncher.launch(fileName to mimeTypeForFileName(fileName))
             },
         )
         return
@@ -4102,8 +4122,10 @@ private fun WorkspaceScreen(
                     },
                     onExportFile = { entry ->
                         pendingExportPath = entry.path
-                        exportFileLauncher.launch(entry.name)
+                        exportFileLauncher.launch(entry.name to mimeTypeForFileName(entry.name))
                     },
+                    onShareFile = onShareFile,
+                    onInstallApk = onInstallApk,
                     onDeleteFile = onDeleteFile,
                 )
                 WorkspaceTab.TERMINAL -> TerminalScreen(
@@ -4464,6 +4486,8 @@ private fun FilesTab(
     onUseSuggestedProjectRoot: () -> Unit,
     onExport: () -> Unit,
     onExportFile: (WorkspaceEntry) -> Unit,
+    onShareFile: (String) -> Unit = {},
+    onInstallApk: (String) -> Unit = {},
     onDeleteFile: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -4497,6 +4521,16 @@ private fun FilesTab(
                 selectedPathForOptions = null
                 onExportFile(entry)
             },
+            onShare = {
+                selectedPathForOptions = null
+                onShareFile(entry.path)
+            },
+            onInstallApk = if (entry.name.endsWith(".apk", ignoreCase = true)) {
+                {
+                    selectedPathForOptions = null
+                    onInstallApk(entry.path)
+                }
+            } else null,
             onEdit = {
                 selectedPathForOptions = null
                 onOpenFile(entry, true)
@@ -4678,6 +4712,8 @@ private fun FileOptionsBottomSheet(
     entry: WorkspaceEntry,
     onDismiss: () -> Unit,
     onExport: () -> Unit,
+    onShare: () -> Unit,
+    onInstallApk: (() -> Unit)? = null,
     onEdit: () -> Unit,
     onView: () -> Unit,
     onCopyPath: () -> Unit,
@@ -4742,6 +4778,24 @@ private fun FileOptionsBottomSheet(
                 iconTint = PocketOrange,
                 onClick = onExport,
             )
+
+            FileActionItem(
+                icon = Icons.Default.Share,
+                title = "Share file",
+                subtitle = "Send via system share sheet to any app",
+                iconTint = PocketOrange,
+                onClick = onShare,
+            )
+
+            if (onInstallApk != null) {
+                FileActionItem(
+                    icon = Icons.Default.Android,
+                    title = "Install APK",
+                    subtitle = "Install package directly on device",
+                    iconTint = MaterialTheme.colorScheme.primary,
+                    onClick = onInstallApk,
+                )
+            }
 
             FileActionItem(
                 icon = Icons.Default.Edit,
@@ -5559,12 +5613,6 @@ private fun FilesTab(files: List<WorkspaceEntry>, loading: Boolean, onRefresh: (
             }
         }
     }
-}
-
-private fun formatFileSize(bytes: Long): String = when {
-    bytes < 1_024 -> "$bytes B"
-    bytes < 1_048_576 -> "%.1f KB".format(bytes / 1_024.0)
-    else -> "%.1f MB".format(bytes / 1_048_576.0)
 }
 
 @Composable
