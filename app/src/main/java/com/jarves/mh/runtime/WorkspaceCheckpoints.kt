@@ -259,7 +259,7 @@ class WorkspaceCheckpoints(
             directory == root || !isInternalRuntimePath(directory.relativeTo(root).invariantSeparatorsPath)
         }
         .filter { it.isFile && !isInternalRuntimePath(it.relativeTo(root).invariantSeparatorsPath) }
-        .associate { it.relativeTo(root).path to digest(it) }
+        .associate { it.relativeTo(root).invariantSeparatorsPath to digest(it) }
 
     fun changedFiles(root: File, before: Map<String, String>): List<String> {
         val after = snapshot(root)

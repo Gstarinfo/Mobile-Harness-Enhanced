@@ -23,9 +23,13 @@ target_compile_definitions(talloc PRIVATE
 )
 set_target_properties(talloc PROPERTIES OUTPUT_NAME talloc SOVERSION 2)
 
+if(NOT DEFINED APP_APPLICATION_ID)
+    set(APP_APPLICATION_ID "com.jarves.mh.enhanced")
+endif()
+
 add_library(android-shmem SHARED "${SHM_ROOT}/shmem.c")
 target_include_directories(android-shmem PUBLIC "${SHM_ROOT}")
-target_compile_definitions(android-shmem PRIVATE _PATH_TMP="/data/data/com.jarves.mh/cache/")
+target_compile_definitions(android-shmem PRIVATE _PATH_TMP="/data/data/${APP_APPLICATION_ID}/cache/")
 target_link_libraries(android-shmem PRIVATE log android)
 
 set(PROOT_SOURCES
@@ -105,10 +109,18 @@ target_compile_definitions(proot PRIVATE
     WITH_LIBANDROID_SHMEM
     PROOT_UNBUNDLE_LOADER="."
 )
+
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/proot_preinclude.h" [=[
+#ifndef PROOT_PREINCLUDE_H
+#define PROOT_PREINCLUDE_H
+#include <string.h>
+#include "shm.h"
+#endif
+]=])
+
 target_compile_options(proot PRIVATE
     -Wall -Wextra -O2
-    "SHELL:-include string.h"
-    "SHELL:-include ${SHM_ROOT}/shm.h"
+    -include proot_preinclude.h
 )
 target_link_options(proot PRIVATE "-Wl,-z,noexecstack")
 target_link_libraries(proot PRIVATE talloc android-shmem)
