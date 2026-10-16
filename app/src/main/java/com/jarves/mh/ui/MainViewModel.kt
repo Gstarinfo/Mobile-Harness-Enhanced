@@ -401,6 +401,11 @@ data class AppUiState(
     val appUpdateDownloadedBytes: Long = 0L,
     val appUpdateTotalBytes: Long = -1L,
     val appUpdateError: String? = null,
+    val exportLoading: Boolean = false,
+    val exportFileName: String? = null,
+    val exportMessage: String? = null,
+    val exportProgress: Float = 0f,
+    val exportBytes: Pair<Long, Long>? = null,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -3925,6 +3930,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun exportSingleFile(path: String, uri: Uri) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        if (current.isRunning || current.projectTerminalRunning || current.androidBuildRunning) {
+            _state.update { it.copy(toastMessage = str(R.string.export_busy)) }
+            return
+        }
+        val initialName = path.substringAfterLast('/')
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    exportLoading = true,
+                    exportFileName = initialName,
+                    exportMessage = "Preparing to export $initialName…",
+                    exportProgress = 0f,
+                    exportBytes = null,
+                )
+            }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val root = projectWorkspaceRoot(project)
+                    val file = com.jarves.mh.enhanced.EnhancedFileOperations.resolveWorkspaceFile(root, path)
+                    var lastUpdateMillis = 0L
+                    com.jarves.mh.enhanced.EnhancedFileOperations.exportSingleFile(
+                        context = getApplication(),
+                        file = file,
+                        destinationUri = uri,
+                        onProgress = { written, total ->
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastUpdateMillis > 80 || written == total) {
+                                lastUpdateMillis = now
+                                val frac = if (total > 0L) (written.toFloat() / total).coerceIn(0f, 1f) else 0f
+                                _state.update {
+                                    it.copy(
+                                        exportProgress = frac,
+                                        exportBytes = written to total,
+                                        exportMessage = "Exporting ${file.name} (${com.jarves.mh.enhanced.EnhancedFileOperations.formatFileSize(written)} / ${com.jarves.mh.enhanced.EnhancedFileOperations.formatFileSize(total)})…",
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    file.name
+                }
+            }
+            _state.update {
+                it.copy(
+                    exportLoading = false,
+                    exportFileName = null,
+                    exportMessage = null,
+                    exportProgress = 0f,
+                    exportBytes = null,
+                    toastMessage = result.fold(
+                        onSuccess = { name -> "$name exported" },
+                        onFailure = { error -> "Export failed: ${error.message ?: "Unknown error"}" },
+                    ),
+                )
+            }
+        }
+    }
+
+    fun shareSingleFile(path: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = projectWorkspaceRoot(project)
+                val file = com.jarves.mh.enhanced.EnhancedFileOperations.resolveWorkspaceFile(root, path)
+                com.jarves.mh.enhanced.EnhancedFileOperations.shareSingleFile(getApplication(), file)
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    _state.update { it.copy(toastMessage = "Share failed: ${error.message ?: "Unknown error"}") }
+                }
+            }
+        }
+    }
+
+    fun openWithFile(path: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = projectWorkspaceRoot(project)
+                val file = com.jarves.mh.enhanced.EnhancedFileOperations.resolveWorkspaceFile(root, path)
+                com.jarves.mh.enhanced.EnhancedFileOperations.openWithFile(getApplication(), file)
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    val message = if (error is android.content.ActivityNotFoundException) {
+                        "No external app found to open ${path.substringAfterLast('/')}"
+                    } else {
+                        "Open with failed: ${error.message ?: "Unknown error"}"
+                    }
+                    _state.update { it.copy(toastMessage = message) }
+                }
+            }
+        }
+    }
+
+    fun installWorkspaceApk(path: String) {
+        val current = _state.value
+        val project = current.activeProject ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = projectWorkspaceRoot(project)
+                val file = com.jarves.mh.enhanced.EnhancedFileOperations.resolveWorkspaceFile(root, path)
+                com.jarves.mh.enhanced.EnhancedFileOperations.installWorkspaceApk(getApplication(), file)
+            }.onFailure { error ->
+                withContext(Dispatchers.Main) {
+                    _state.update { it.copy(toastMessage = "Install failed: ${error.message ?: "Unknown error"}") }
+                }
+            }
+        }
+    }
+
     fun createChat() {
         val project = _state.value.activeProject ?: return
         if (_state.value.isRunning) return
@@ -5398,3 +5517,4 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val TEST_OPENROUTER_MODEL = "stealth/ox-alpha"
     }
 }
+

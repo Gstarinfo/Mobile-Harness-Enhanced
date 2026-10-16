@@ -82,6 +82,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -411,6 +412,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onUploadToWorkspace = viewModel::uploadToWorkspace,
             onShareWorkspaceFile = viewModel::shareWorkspaceFile,
             onSaveWorkspaceFileCopy = viewModel::saveWorkspaceFileCopy,
+            onOpenWithFile = viewModel::openWithFile,
+            onInstallApk = viewModel::installWorkspaceApk,
             onOpenFile = viewModel::openFile,
             onCloseFile = viewModel::closeFile,
             onBeginFileEdit = viewModel::beginFileEdit,
@@ -4346,6 +4349,8 @@ private fun WorkspaceScreen(
     onUploadToWorkspace: (String, List<Uri>) -> Unit,
     onShareWorkspaceFile: (String) -> Unit,
     onSaveWorkspaceFileCopy: (String, Uri) -> Unit,
+    onOpenWithFile: (String) -> Unit = {},
+    onInstallApk: (String) -> Unit = {},
     onOpenFile: (WorkspaceEntry) -> Unit,
     onCloseFile: () -> Unit,
     onBeginFileEdit: () -> Unit,
@@ -4665,6 +4670,13 @@ private fun WorkspaceScreen(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
+            com.jarves.mh.enhanced.EnhancedExportProgressDialog(
+                exportLoading = state.exportLoading,
+                fileName = state.exportFileName,
+                message = state.exportMessage,
+                progress = state.exportProgress,
+                bytes = state.exportBytes,
+            )
             when (selectedTab) {
                 WorkspaceTab.CHAT -> ChatTab(
                     state.messages,
@@ -4743,6 +4755,8 @@ private fun WorkspaceScreen(
                         pendingCopyPath = path
                         saveCopyLauncher.launch(path.substringAfterLast('/'))
                     },
+                    onOpenWithFile = onOpenWithFile,
+                    onInstallApk = onInstallApk,
                 )
                 WorkspaceTab.TERMINAL -> TerminalScreen(
                     lines = state.projectTerminalLines,
@@ -5826,6 +5840,8 @@ private fun FilesTab(
     onUploadInto: (parentPath: String) -> Unit = {},
     onShareFile: (path: String) -> Unit = {},
     onSaveFileCopy: (path: String) -> Unit = {},
+    onOpenWithFile: (path: String) -> Unit = {},
+    onInstallApk: (path: String) -> Unit = {},
 ) {
     var expandedDirectories by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var nameDialog by remember { mutableStateOf<FileNameDialog?>(null) }
@@ -6028,6 +6044,18 @@ private fun FilesTab(
                                     leadingIcon = { Icon(Icons.Default.Share, null) },
                                     onClick = { entryMenuOpen = false; onShareFile(entry.path) },
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Open with…") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null) },
+                                    onClick = { entryMenuOpen = false; onOpenWithFile(entry.path) },
+                                )
+                                if (entry.name.endsWith(".apk", ignoreCase = true)) {
+                                    DropdownMenuItem(
+                                        text = { Text("Install APK") },
+                                        leadingIcon = { Icon(Icons.Default.PlayArrow, null) },
+                                        onClick = { entryMenuOpen = false; onInstallApk(entry.path) },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.fm_save_copy)) },
                                     leadingIcon = { Icon(Icons.Default.Download, null) },
