@@ -51,10 +51,24 @@ class AntigravityAuthController(
         if (process?.isAlive == true) return@withContext
         if (!installer.isAgentInstalled(com.jarves.mh.model.AgentKind.ANTIGRAVITY)) {
             mutableState.value = AntigravityAuthState(
-                AntigravityAuthStatus.ERROR,
-                message = str(R.string.rt_agy_install_first),
+                AntigravityAuthStatus.STARTING,
+                message = "Installing Antigravity CLI…",
             )
-            return@withContext
+            val installResult = runCatching {
+                installer.ensureAgentInstalled(com.jarves.mh.model.AgentKind.ANTIGRAVITY) { progress ->
+                    mutableState.value = AntigravityAuthState(
+                        AntigravityAuthStatus.STARTING,
+                        message = progress.message,
+                    )
+                }
+            }
+            if (installResult.isFailure) {
+                mutableState.value = AntigravityAuthState(
+                    AntigravityAuthStatus.ERROR,
+                    message = installResult.exceptionOrNull()?.message ?: "Failed to install Antigravity CLI.",
+                )
+                return@withContext
+            }
         }
         mutableState.value = AntigravityAuthState(AntigravityAuthStatus.STARTING, message = str(R.string.rt_agy_starting))
         codeSubmitted = false
@@ -321,12 +335,12 @@ internal fun extractGoogleOAuthUrl(output: String): String? {
             output.contains("open", true) || output.contains("code", true) ||
             output.contains("paste", true))
     ) {
-        val candidates = Regex("https://[^\\s\"']{20,}")
+        val candidates = Regex("https://accounts\\.google\\.com/[^\\s\"']{20,}")
             .findAll(compact)
             .map { it.value.trimEnd { char -> char !in URL_CHARACTERS } }
-            .filter { it.length >= 30 && "." in it }
+            .filter { it.length >= 30 }
             .toList()
-        return candidates.firstOrNull { "google" in it } ?: candidates.firstOrNull()
+        return candidates.firstOrNull()
     }
     return null
 }
