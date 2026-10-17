@@ -138,6 +138,7 @@ class WorkspaceCheckpoints(
     }
 
     fun buildDiffLines(beforeBytes: ByteArray, afterBytes: ByteArray): List<DiffLine> {
+        if (beforeBytes.contentEquals(afterBytes)) return emptyList()
         if (beforeBytes.any { it == 0.toByte() } || afterBytes.any { it == 0.toByte() }) {
             return listOf(DiffLine(DiffLineType.INFO, text(R.string.rt_diff_binary_changed, "Binary file changed")))
         }
@@ -178,7 +179,7 @@ class WorkspaceCheckpoints(
                     oldIndex++
                     newIndex++
                 }
-                newIndex < after.size && (oldIndex == before.size || lcs[oldIndex][newIndex + 1] >= lcs[oldIndex + 1][newIndex]) -> {
+                newIndex < after.size && (oldIndex == before.size || lcs[oldIndex][newIndex + 1] > lcs[oldIndex + 1][newIndex]) -> {
                     result += DiffLine(DiffLineType.ADDITION, after[newIndex], null, newIndex + 1)
                     newIndex++
                 }
@@ -208,13 +209,21 @@ class WorkspaceCheckpoints(
             } else {
                 val start = index
                 while (index < lines.size && !visible[index]) index++
-                result += DiffLine(DiffLineType.INFO, "… ${index - start} unchanged lines …")
+                val count = index - start
+                if (count <= 1) {
+                    for (i in start until index) {
+                        result += lines[i]
+                    }
+                } else {
+                    result += DiffLine(DiffLineType.INFO, "… $count unchanged lines …")
+                }
             }
         }
         return result
     }
 
     private fun lineChanges(beforeBytes: ByteArray, afterBytes: ByteArray): Pair<Int, Int> {
+        if (beforeBytes.contentEquals(afterBytes)) return 0 to 0
         if (beforeBytes.any { it == 0.toByte() } || afterBytes.any { it == 0.toByte() }) {
             return (if (afterBytes.isNotEmpty()) 1 else 0) to (if (beforeBytes.isNotEmpty()) 1 else 0)
         }
@@ -241,7 +250,8 @@ class WorkspaceCheckpoints(
 
     private fun textLines(bytes: ByteArray): List<String> {
         if (bytes.isEmpty()) return emptyList()
-        val lines = bytes.decodeToString().split('\n')
+        val text = bytes.decodeToString().replace("\r\n", "\n").replace('\r', '\n')
+        val lines = text.split('\n')
         return if (lines.lastOrNull().isNullOrEmpty()) lines.dropLast(1) else lines
     }
 
