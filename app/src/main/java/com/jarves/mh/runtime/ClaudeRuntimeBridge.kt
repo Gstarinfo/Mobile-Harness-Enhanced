@@ -3,6 +3,8 @@ package com.jarves.mh.runtime
 import android.content.Context
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.jarves.mh.R
+import com.jarves.mh.ui.AppStrings
 import com.jarves.mh.model.ChatMessage
 import com.jarves.mh.model.ChangeItem
 import com.jarves.mh.model.DiffLine
@@ -28,6 +30,8 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.json.JSONArray
 
@@ -106,8 +110,8 @@ class ClaudeRuntimeBridge(
         currentThinkingBlockId = 0L
         streamedThinking.clear()
         eventBus.emit(RuntimeEvent.SessionStarted(sessionId))
-        pushForegroundProgress("Starting Claude Code…")
-        val secret = secretFor(provider).orEmpty()
+        pushForegroundProgress(R.string.rt_bridge_starting, "Claude Code")
+        val secret = secretFor(provider).orEmpty().ifBlank { localServerPlaceholderKey(provider) }
         if (secret.isBlank()) {
             val message = if (provider.kind == ProviderKind.CLAUDE) {
                 "No Claude subscription token is saved. Add one from Agent → AI provider."
@@ -162,7 +166,8 @@ class ClaudeRuntimeBridge(
 
             val command = buildList {
                 add(launch.executable)
-                add("--bare")
+                // Do not use --bare here: Claude Code bare mode ignores CLAUDE_CODE_OAUTH_TOKEN,
+                // which is how setup-token authenticates Claude subscriptions.
                 add("-p")
                 add(contextPrompt)
                 add("--output-format")
@@ -252,7 +257,7 @@ class ClaudeRuntimeBridge(
                     finishForegroundRuntime(
                         completed = true,
                         projectName = projectSlug,
-                        detail = "Claude Code finished the task in $projectSlug.",
+                        detail = AppStrings.get(context, R.string.rt_bridge_finished_in, "Claude Code", projectSlug),
                     )
                 } else {
                     if (userStopRequested) throw ProviderSessionException("Stopped by user")
@@ -279,6 +284,64 @@ class ClaudeRuntimeBridge(
         activeSessionId = null
         RuntimeTaskController.stopAction = null
         sessionId
+    }
+
+    /**
+     * Runs a one-turn "reply ok" prompt with the saved credentials to prove Claude Code can
+     * authenticate. Used by Test connection for Claude subscriptions, which have no HTTP endpoint
+     * the app could ping directly. Returns the reply, or throws with Claude Code's error text.
+     */
+    suspend fun hello(provider: ProviderProfile, timeoutMillis: Long = 90_000L): String = withContext(Dispatchers.IO) {
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val secret = secretFor(provider).orEmpty()
+        check(secret.isNotBlank()) { "No Claude subscription token is saved." }
+        val installed = installer.installedRuntime()
+        val probeDir = File(context.cacheDir, "claude-hello").apply { mkdirs() }
+        val outputFile = File(context.cacheDir, "claude-hello-${System.nanoTime()}.log")
+        val launch = RuntimeLaunchConfigBuilder.build(provider, authToken = secret)
+        val command = listOf(
+            launch.executable,
+            "-p", "Reply with exactly: ok",
+            "--output-format", "json",
+            "--max-turns", "1",
+            "--model", launch.environment["ANTHROPIC_MODEL"] ?: provider.model,
+        )
+        val process = installer.process(
+            installed.proot,
+            installed.rootfs,
+            probeDir,
+            launch.environment,
+            command,
+            guestWorkspacePath = "/workspace/claude-hello",
+            emulateHardLinks = false,
+            outputFile = outputFile,
+        )
+        try {
+            // Close stdin so Claude Code doesn't wait for piped input.
+            runCatching { process.outputStream.close() }
+            withTimeout(timeoutMillis) {
+                while (process.isAlive) delay(200)
+            }
+            val output = outputFile.takeIf(File::exists)?.readText().orEmpty()
+            val result = output.lineSequence()
+                .map(String::trim)
+                .filter { it.startsWith("{") }
+                .mapNotNull { runCatching { JSONObject(it) }.getOrNull() }
+                .lastOrNull { it.optString("type") == "result" }
+            when {
+                result == null -> error(output.trim().takeLast(300).ifBlank { "Claude Code did not answer." })
+                result.optBoolean("is_error") -> error(result.optString("result").ifBlank { result.optString("subtype") })
+                else -> result.optString("result").trim().ifBlank { "ok" }
+            }
+        } catch (e: TimeoutCancellationException) {
+            error("Claude Code did not answer in time. Check your connection and try again.")
+        } finally {
+            runCatching { process.destroy() }
+            runCatching { if (process.isAlive) process.destroyForcibly() }
+            runCatching { outputFile.delete() }
+            runCatching { probeDir.deleteRecursively() }
+            Log.d("ClaudeBridge", "Connection test took ${android.os.SystemClock.elapsedRealtime() - startedAt} ms")
+        }
     }
 
     override suspend fun respondToApproval(request: ToolRequest, approved: Boolean) = withContext(Dispatchers.IO) {
@@ -540,7 +603,7 @@ class ClaudeRuntimeBridge(
                     isFinal = isFinal,
                 ),
             )
-            pushForegroundProgress("Thinking…")
+            pushForegroundProgress(R.string.rt_bridge_thinking)
         }
     }
 
@@ -551,7 +614,7 @@ class ClaudeRuntimeBridge(
             lastReasoningTokens = tokens
             lastReasoningUpdateAt = now
             eventBus.emit(RuntimeEvent.ReasoningProgress(sessionId, tokens))
-            pushForegroundProgress("Thinking…")
+            pushForegroundProgress(R.string.rt_bridge_thinking)
         }
     }
 
@@ -571,7 +634,7 @@ class ClaudeRuntimeBridge(
             else -> input.optString("description").ifBlank { "Running $name" }
         }
         eventBus.emit(RuntimeEvent.ToolStarted(sessionId, name, sanitizeForDisplay(detail.ifBlank { "Running $name" })))
-        pushForegroundProgress("Running $name · ${detail.replace(Regex("\\s+"), " ").trim().take(80).ifBlank { name }}")
+        pushForegroundProgress(R.string.rt_bridge_running_tool, name, detail.replace(Regex("\\s+"), " ").trim().take(80).ifBlank { name })
     }
 
     private fun terminalStatus(line: String): Pair<String, String>? = null
@@ -584,8 +647,8 @@ class ClaudeRuntimeBridge(
             // is already done, which would freeze the notification on its last step.
             finishForegroundRuntime(
                 completed = true,
-                projectName = activeProjectSlug ?: "your project",
-                detail = "Claude Code finished the task.",
+                projectName = activeProjectSlug ?: AppStrings.get(context, R.string.rt_exec_default_project),
+                detail = AppStrings.get(context, R.string.rt_bridge_finished, "Claude Code"),
             )
         }
     }
@@ -598,7 +661,7 @@ class ClaudeRuntimeBridge(
             } else {
                 finishForegroundRuntime(
                     completed = false,
-                    projectName = activeProjectSlug ?: "your project",
+                    projectName = activeProjectSlug ?: AppStrings.get(context, R.string.rt_exec_default_project),
                     detail = reason,
                 )
             }
@@ -759,7 +822,7 @@ class ClaudeRuntimeBridge(
                     diffLines = listOf(
                         DiffLine(
                             DiffLineType.INFO,
-                            "File is too large to preview safely. Undo and Keep still work.",
+                            AppStrings.get(context, R.string.rt_diff_file_too_large),
                         ),
                     ),
                 )
@@ -780,7 +843,7 @@ class ClaudeRuntimeBridge(
 
     private fun buildDiffLines(beforeBytes: ByteArray, afterBytes: ByteArray): List<DiffLine> {
         if (beforeBytes.any { it == 0.toByte() } || afterBytes.any { it == 0.toByte() }) {
-            return listOf(DiffLine(DiffLineType.INFO, "Binary file changed"))
+            return listOf(DiffLine(DiffLineType.INFO, AppStrings.get(context, R.string.rt_diff_binary_changed)))
         }
         val before = textLines(beforeBytes)
         val after = textLines(afterBytes)
@@ -788,7 +851,7 @@ class ClaudeRuntimeBridge(
             return listOf(
                 DiffLine(
                     DiffLineType.INFO,
-                    "Diff is too large to display (${before.size} → ${after.size} lines). Undo and Keep still work.",
+                    AppStrings.get(context, R.string.rt_diff_too_large, before.size, after.size),
                 ),
             )
         }
@@ -948,6 +1011,13 @@ class ClaudeRuntimeBridge(
      * notification, so the notification panel shows the real task progress.
      * Throttled because each update is a service round-trip.
      */
+    /** Localized variant; resolves the string only when the throttle allows an update. */
+    private fun pushForegroundProgress(@androidx.annotation.StringRes id: Int, vararg args: Any) {
+        if (activeSessionId == null) return
+        if (android.os.SystemClock.elapsedRealtime() - lastForegroundProgressAt < FOREGROUND_PROGRESS_MIN_INTERVAL_MS) return
+        pushForegroundProgress(AppStrings.get(context, id, *args))
+    }
+
     private fun pushForegroundProgress(detailRaw: String) {
         if (activeSessionId == null) return
         val now = android.os.SystemClock.elapsedRealtime()

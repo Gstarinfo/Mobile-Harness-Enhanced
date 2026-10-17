@@ -20,4 +20,11 @@ class RuntimeCompatibilityTest {
         assertFalse(supportsArm64Runtime(arrayOf("x86_64", "x86"), "x86_64"))
         assertFalse(supportsArm64Runtime(arrayOf("armeabi-v7a"), "armv7l"))
     }
+
+    @Test
+    fun onlyOffersDeepSeekHarnessVersionValidatedForThisBuild() {
+        assertTrue(isSupportedDshVersion(RuntimeInstaller.DSH_VERSION))
+        assertFalse(isSupportedDshVersion("0.2.0-rc.2"))
+        assertFalse(isSupportedDshVersion(""))
+    }
 }

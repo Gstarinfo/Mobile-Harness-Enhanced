@@ -39,7 +39,6 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PrivacyTip
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -101,12 +100,16 @@ import com.jarves.mh.model.providersForAgent
 import com.jarves.mh.network.ConnectionValidation
 import com.jarves.mh.network.DiscoveredModel
 import com.jarves.mh.network.ModelDiscoveryResult
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.ui.res.stringResource
+import com.jarves.mh.R
 import com.jarves.mh.runtime.AntigravityAuthStatus
+import com.jarves.mh.ui.theme.AppLanguage
 import com.jarves.mh.ui.theme.AppThemeMode
 import com.jarves.mh.ui.theme.PocketOrange
 import kotlinx.coroutines.launch
 
-private enum class SettingsSection { APPEARANCE, TOOLS, RUNTIME, UPDATE_CHANNEL }
+private enum class SettingsSection { APPEARANCE, LANGUAGE, TOOLS, RUNTIME, DIAGNOSTICS, UPDATE_CHANNEL }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,6 +119,7 @@ fun SettingsScreen(
     onDiscoverModels: suspend (ProviderProfile, String) -> ModelDiscoveryResult,
     onValidateProvider: suspend (ProviderProfile, String, List<DiscoveredModel>) -> ConnectionValidation,
     onSetThemeMode: (AppThemeMode) -> Unit,
+    onSetLanguage: (String) -> Unit = {},
     onPing: () -> Unit,
     onClearTerminal: () -> Unit,
     getSavedApiKey: (ProviderKind) -> String,
@@ -137,6 +141,9 @@ fun SettingsScreen(
     initialDebugUpdateManifestUrl: String = "",
     onSetDebugUpdateManifestUrl: (String) -> Unit = {},
     onClearDebugUpdateManifestUrl: () -> Unit = {},
+    onRefreshDiagnostics: () -> Unit = {},
+    onStopInactiveProcesses: () -> Unit = {},
+    onClearRuntimeCache: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var expanded by rememberSaveable { mutableStateOf<SettingsSection?>(null) }
@@ -147,9 +154,9 @@ fun SettingsScreen(
     stackPendingRemoval?.let { stack ->
         AlertDialog(
             onDismissRequest = { stackPendingRemoval = null },
-            title = { Text("Remove ${stack.label}?") },
+            title = { Text(stringResource(R.string.tools_remove_dialog_title, stack.localizedLabel())) },
             text = {
-                Text("This removes the toolchain and its runtime caches to free storage. Your projects and source files will not be deleted.")
+                Text(stringResource(R.string.tools_remove_dialog_desc))
             },
             confirmButton = {
                 TextButton(
@@ -157,9 +164,9 @@ fun SettingsScreen(
                         stackPendingRemoval = null
                         onRemoveDevStack(stack)
                     },
-                ) { Text("Remove", color = MaterialTheme.colorScheme.error) }
+                ) { Text(stringResource(R.string.action_remove), color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { stackPendingRemoval = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { stackPendingRemoval = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 
@@ -196,8 +203,8 @@ fun SettingsScreen(
                         }
                         Spacer(Modifier.width(10.dp))
                         Column {
-                            Text("Settings", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-                            Text("Preferences & Configuration", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.settings_title), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                            Text(stringResource(R.string.settings_subtitle), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 },
@@ -213,16 +220,94 @@ fun SettingsScreen(
 
             item {
                 SettingsAccordion(
-                    title = "Appearance",
-                    subtitle = when (state.themeMode) { AppThemeMode.DARK -> "Dark theme"; AppThemeMode.LIGHT -> "Light theme"; AppThemeMode.SYSTEM -> "Follow system" },
+                    title = stringResource(R.string.settings_appearance),
+                    subtitle = when (state.themeMode) {
+                        AppThemeMode.DARK -> stringResource(R.string.theme_dark_subtitle)
+                        AppThemeMode.LIGHT -> stringResource(R.string.theme_light_subtitle)
+                        AppThemeMode.SYSTEM -> stringResource(R.string.theme_system_subtitle)
+                    },
                     icon = Icons.Default.Tune,
                     expanded = expanded == SettingsSection.APPEARANCE,
                     onClick = { toggle(SettingsSection.APPEARANCE) },
                 ) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ModernThemeChoice("Dark", Icons.Default.DarkMode, state.themeMode == AppThemeMode.DARK, { onSetThemeMode(AppThemeMode.DARK) }, Modifier.weight(1f))
-                        ModernThemeChoice("Light", Icons.Default.LightMode, state.themeMode == AppThemeMode.LIGHT, { onSetThemeMode(AppThemeMode.LIGHT) }, Modifier.weight(1f))
-                        ModernThemeChoice("System", Icons.Default.PhoneAndroid, state.themeMode == AppThemeMode.SYSTEM, { onSetThemeMode(AppThemeMode.SYSTEM) }, Modifier.weight(1f))
+                        ModernThemeChoice(stringResource(R.string.theme_dark), Icons.Default.DarkMode, state.themeMode == AppThemeMode.DARK, { onSetThemeMode(AppThemeMode.DARK) }, Modifier.weight(1f))
+                        ModernThemeChoice(stringResource(R.string.theme_light), Icons.Default.LightMode, state.themeMode == AppThemeMode.LIGHT, { onSetThemeMode(AppThemeMode.LIGHT) }, Modifier.weight(1f))
+                        ModernThemeChoice(stringResource(R.string.theme_system), Icons.Default.PhoneAndroid, state.themeMode == AppThemeMode.SYSTEM, { onSetThemeMode(AppThemeMode.SYSTEM) }, Modifier.weight(1f))
+                    }
+                }
+            }
+
+            item {
+                SettingsAccordion(
+                    title = stringResource(R.string.diagnostics_title),
+                    subtitle = stringResource(R.string.diagnostics_subtitle),
+                    icon = Icons.Default.Memory,
+                    expanded = expanded == SettingsSection.DIAGNOSTICS,
+                    onClick = {
+                        val opening = expanded != SettingsSection.DIAGNOSTICS
+                        toggle(SettingsSection.DIAGNOSTICS)
+                        if (opening) onRefreshDiagnostics()
+                    },
+                ) {
+                    DeveloperDiagnosticsContent(
+                        state = state,
+                        onRefresh = onRefreshDiagnostics,
+                        onStopInactiveProcesses = onStopInactiveProcesses,
+                        onClearRuntimeCache = onClearRuntimeCache,
+                    )
+                }
+            }
+
+            item {
+                val currentLang = AppLanguage.fromCode(state.languageCode)
+                val langSubtitle = if (currentLang == AppLanguage.SYSTEM) {
+                    stringResource(R.string.language_system_default)
+                } else {
+                    "${currentLang.displayName} (${currentLang.nativeName})"
+                }
+                SettingsAccordion(
+                    title = stringResource(R.string.settings_language),
+                    subtitle = langSubtitle,
+                    icon = Icons.Default.Language,
+                    expanded = expanded == SettingsSection.LANGUAGE,
+                    onClick = { toggle(SettingsSection.LANGUAGE) },
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        AppLanguage.entries.forEachIndexed { index, lang ->
+                            val isSelected = (state.languageCode == lang.code) ||
+                                (state.languageCode.isBlank() && lang == AppLanguage.SYSTEM)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSetLanguage(lang.code) }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = if (lang == AppLanguage.SYSTEM) {
+                                            stringResource(R.string.language_system_default)
+                                        } else {
+                                            lang.nativeName
+                                        },
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        fontSize = 14.sp,
+                                    )
+                                    if (lang != AppLanguage.SYSTEM) {
+                                        Text(
+                                            text = lang.displayName,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                SelectionDot(isSelected)
+                            }
+                            if (index != AppLanguage.entries.lastIndex) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            }
+                        }
                     }
                 }
             }
@@ -230,13 +315,13 @@ fun SettingsScreen(
             item {
                 val installedCount = state.installedDevStacks.count { it != DevStack.WEB }
                 SettingsAccordion(
-                    title = "Developer tools",
-                    subtitle = "Core tools + $installedCount optional toolchain${if (installedCount == 1) "" else "s"}",
+                    title = stringResource(R.string.settings_tools),
+                    subtitle = stringResource(R.string.tools_subtitle, installedCount),
                     icon = Icons.Default.Code,
                     expanded = expanded == SettingsSection.TOOLS,
                     onClick = { toggle(SettingsSection.TOOLS) },
                 ) {
-                    Text("Node.js, npm, Git, and Claude Code are included.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.st_tools_included_note), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     DevStack.entries.forEachIndexed { index, stack ->
                         val installed = stack in state.installedDevStacks
@@ -244,18 +329,18 @@ fun SettingsScreen(
                         val removing = installing && state.devStackRemoving
                         Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(stack.label, fontWeight = FontWeight.SemiBold)
-                                Text(stack.installsSummary, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(stack.localizedLabel(), fontWeight = FontWeight.SemiBold)
+                                Text(stack.localizedInstallsSummary(), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             when {
-                                removing -> Text("Removing…", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                removing -> Text(stringResource(R.string.tools_removing), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                 installing -> Text("${(state.devStackProgress * 100).toInt()}%", color = PocketOrange, fontWeight = FontWeight.Bold)
-                                installed && stack == DevStack.WEB -> Text("Included", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                installed && stack == DevStack.WEB -> Text(stringResource(R.string.tools_included), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 installed -> TextButton(
                                     onClick = { stackPendingRemoval = stack },
                                     enabled = state.devStackInstalling == null,
-                                ) { Text("Remove", color = MaterialTheme.colorScheme.error) }
-                                else -> OutlinedButton(onClick = { onInstallDevStack(stack) }, enabled = state.devStackInstalling == null) { Text("Add") }
+                                ) { Text(stringResource(R.string.action_remove), color = MaterialTheme.colorScheme.error) }
+                                else -> OutlinedButton(onClick = { onInstallDevStack(stack) }, enabled = state.devStackInstalling == null) { Text(stringResource(R.string.action_add)) }
                             }
                         }
                         if (installing) {
@@ -276,14 +361,14 @@ fun SettingsScreen(
                                     Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text(
-                                                "${formatTransferMb(downloaded)} of ${formatTransferMb(total)}",
+                                                stringResource(R.string.st_transfer_progress, formatTransferMb(downloaded), formatTransferMb(total)),
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                                 fontFamily = FontFamily.Monospace,
                                             )
                                             state.devStackBytesPerSecond?.takeIf { it > 0L }?.let { speed ->
                                                 Text(
-                                                    "${formatTransferSpeed(speed)} · ${formatTransferEta(downloaded, total, speed)} left",
+                                                    stringResource(R.string.st_transfer_speed_eta, formatTransferSpeed(speed), formatTransferEta(downloaded, total, speed)),
                                                     fontSize = 11.sp,
                                                     color = PocketOrange,
                                                     fontFamily = FontFamily.Monospace,
@@ -291,7 +376,7 @@ fun SettingsScreen(
                                             }
                                         }
                                         Text(
-                                            state.devStackMessage ?: "Downloading…",
+                                            state.devStackMessage ?: stringResource(R.string.st_downloading),
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
@@ -300,7 +385,7 @@ fun SettingsScreen(
                                     }
                                 }
                             } ?: Text(
-                                state.devStackMessage ?: "Processing…",
+                                state.devStackMessage ?: stringResource(R.string.st_processing),
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
@@ -314,31 +399,31 @@ fun SettingsScreen(
 
             item {
                 SettingsAccordion(
-                    title = "Linux runtime",
+                    title = stringResource(R.string.settings_runtime),
                     subtitle = "Ubuntu 20.04 PRoot · ARM64",
                     icon = Icons.Default.Terminal,
                     expanded = expanded == SettingsSection.RUNTIME,
                     onClick = { toggle(SettingsSection.RUNTIME) },
                 ) {
-                    RuntimeInfoRow("Architecture", "ARM64 (aarch64)")
-                    RuntimeInfoRow("Environment", "Ubuntu 20.04 PRoot")
+                    RuntimeInfoRow(stringResource(R.string.runtime_architecture), "ARM64 (aarch64)")
+                    RuntimeInfoRow(stringResource(R.string.runtime_environment), "Ubuntu 20.04 PRoot")
                     RuntimeInfoRow(
-                        "Active agent",
-                        state.agentKind.title + if (state.installedAgentVersions.containsKey(state.agentKind)) "" else " · Not installed",
+                        stringResource(R.string.runtime_active_agent),
+                        state.agentKind.localizedTitle() + if (state.installedAgentVersions.containsKey(state.agentKind)) "" else " · " + stringResource(R.string.st_not_installed),
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     Text(
-                        "Installed agents",
+                        stringResource(R.string.runtime_installed_agents),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (state.installedAgentVersions.isEmpty()) {
-                        RuntimeInfoRow("Status", "No verified agent installation")
+                        RuntimeInfoRow(stringResource(R.string.st_status), stringResource(R.string.st_no_verified_agent))
                     } else {
                         AgentKind.entries.forEach { agent ->
                             state.installedAgentVersions[agent]?.let { version ->
-                                RuntimeInfoRow(agent.title, "v$version")
+                                RuntimeInfoRow(agent.localizedTitle(), "v$version")
                             }
                         }
                     }
@@ -349,18 +434,18 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Default.DeleteSweep, null, Modifier.size(17.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text(if (terminalCleared) "Terminal history cleared" else "Clear terminal history")
+                        Text(if (terminalCleared) stringResource(R.string.runtime_history_cleared) else stringResource(R.string.runtime_clear_history))
                     }
                     OutlinedButton(
                         onClick = { showReliabilityHelp = !showReliabilityHelp },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text("Advanced runtime reliability")
+                        Text(stringResource(R.string.runtime_advanced_reliability))
                     }
                     AnimatedVisibility(showReliabilityHelp) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "If large builds stop unexpectedly, Android Developer options may provide a child-process restriction toggle.",
+                                stringResource(R.string.st_reliability_help),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -370,7 +455,7 @@ fun SettingsScreen(
                                         .onFailure { context.startActivity(Intent(Settings.ACTION_SETTINGS)) }
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                            ) { Text("Open Developer options") }
+                            ) { Text(stringResource(R.string.st_open_developer_options)) }
                         }
                     }
                 }
@@ -396,7 +481,7 @@ fun SettingsScreen(
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Mobile Harness", fontWeight = FontWeight.SemiBold)
-                            Text("Local AI coding workspace", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.settings_app_desc), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text("v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -422,16 +507,16 @@ fun SettingsScreen(
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("Privacy policy", fontWeight = FontWeight.Medium)
+                        Text(stringResource(R.string.settings_privacy), fontWeight = FontWeight.Medium)
                         Text(
-                            "How local data and AI provider requests are handled",
+                            stringResource(R.string.settings_privacy_desc),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Icon(
                         Icons.AutoMirrored.Filled.OpenInNew,
-                        contentDescription = "Open privacy policy",
+                        contentDescription = stringResource(R.string.settings_privacy),
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -440,6 +525,104 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun DeveloperDiagnosticsContent(
+    state: AppUiState,
+    onRefresh: () -> Unit,
+    onStopInactiveProcesses: () -> Unit,
+    onClearRuntimeCache: () -> Unit,
+) {
+    val diagnostics = state.diagnostics
+    val busy = state.isRunning || state.projectTerminalRunning || state.androidBuildRunning
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        TextButton(onClick = onRefresh, enabled = !diagnostics.loading) {
+            if (diagnostics.loading) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Default.Refresh, null, Modifier.size(17.dp))
+            }
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.diagnostics_refresh))
+        }
+    }
+    DiagnosticsCard(stringResource(R.string.diagnostics_memory)) {
+        RuntimeInfoRow(stringResource(R.string.diagnostics_app_memory), formatDiagnosticBytes(diagnostics.appPssBytes))
+        RuntimeInfoRow(
+            stringResource(R.string.diagnostics_java_heap),
+            "${formatDiagnosticBytes(diagnostics.javaHeapBytes)} / ${formatDiagnosticBytes(diagnostics.javaHeapMaxBytes)}",
+        )
+    }
+    DiagnosticsCard(stringResource(R.string.diagnostics_processes)) {
+        Text(
+            if (diagnostics.activeProcesses.isEmpty()) stringResource(R.string.diagnostics_no_processes)
+            else diagnostics.activeProcesses.joinToString(" · "),
+            fontSize = 13.sp,
+            color = if (diagnostics.activeProcesses.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(onClick = onStopInactiveProcesses, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.diagnostics_stop_inactive))
+        }
+    }
+    DiagnosticsCard(stringResource(R.string.diagnostics_buffers)) {
+        RuntimeInfoRow(stringResource(R.string.diagnostics_messages), diagnostics.messageCount.toString())
+        RuntimeInfoRow(stringResource(R.string.diagnostics_live_activity), diagnostics.liveActivityCount.toString())
+        RuntimeInfoRow(stringResource(R.string.diagnostics_terminal_buffer), formatDiagnosticBytes(diagnostics.terminalBufferBytes))
+        RuntimeInfoRow(stringResource(R.string.diagnostics_build_log), formatDiagnosticBytes(diagnostics.buildLogBytes))
+        RuntimeInfoRow(stringResource(R.string.diagnostics_logcat_lines), diagnostics.logcatLines.toString())
+        RuntimeInfoRow(stringResource(R.string.diagnostics_file_entries), diagnostics.fileEntries.toString())
+    }
+    DiagnosticsCard(stringResource(R.string.diagnostics_runtime_cache)) {
+        RuntimeInfoRow(stringResource(R.string.diagnostics_cached_output), formatDiagnosticBytes(diagnostics.runtimeCacheBytes))
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = onClearRuntimeCache,
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.DeleteSweep, null, Modifier.size(17.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(stringResource(R.string.diagnostics_clear_cache))
+        }
+        if (busy) {
+            Text(
+                stringResource(R.string.diagnostics_cache_disabled),
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+    DiagnosticsCard(stringResource(R.string.diagnostics_recent_exit)) {
+        Text(
+            diagnostics.recentExit ?: stringResource(R.string.diagnostics_no_recent_exit),
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun DiagnosticsCard(title: String, content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(10.dp))
+            content()
+        }
+    }
+}
+
+private fun formatDiagnosticBytes(bytes: Long): String = when {
+    bytes >= 1_048_576L -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1_024L -> "%.1f KB".format(bytes / 1_024.0)
+    else -> "$bytes B"
 }
 
 private fun formatTransferMb(bytes: Long): String = "%.1f MB".format(bytes.coerceAtLeast(0L) / 1_048_576.0)
@@ -484,7 +667,7 @@ private fun SettingsAccordion(
                 }
                 Icon(
                     if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    if (expanded) "Collapse" else "Expand",
+                    if (expanded) stringResource(R.string.st_collapse) else stringResource(R.string.st_expand),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -517,17 +700,17 @@ private fun AntigravityConnectionSettings(
         shape = RoundedCornerShape(14.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Official Antigravity CLI", fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.st_official_antigravity_cli), fontWeight = FontWeight.SemiBold)
             Text(
                 auth.message ?: if (auth.status == AntigravityAuthStatus.SIGNED_IN) {
-                    auth.accountEmail?.let { "Connected as $it" } ?: "Google account connected"
-                } else "Sign in using Google's browser flow.",
+                    auth.accountEmail?.let { stringResource(R.string.st_connected_as, it) } ?: stringResource(R.string.st_google_account_connected)
+                } else stringResource(R.string.st_sign_in_google_flow),
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             when (auth.status) {
                 AntigravityAuthStatus.SIGNED_IN -> OutlinedButton(onClick = onLogout, modifier = Modifier.fillMaxWidth()) {
-                    Text("Log out of Antigravity")
+                    Text(stringResource(R.string.st_log_out_antigravity))
                 }
                 AntigravityAuthStatus.STARTING, AntigravityAuthStatus.COMPLETING -> {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -537,33 +720,33 @@ private fun AntigravityConnectionSettings(
                         OutlinedButton(
                             onClick = { clipboard.setText(AnnotatedString(url)) },
                             modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Copy Google sign-in URL") }
+                        ) { Text(stringResource(R.string.st_copy_google_signin_url)) }
                     }
                     OutlinedTextField(
                         value = code,
                         onValueChange = onCode,
-                        label = { Text("One-time authorization code") },
+                        label = { Text(stringResource(R.string.st_one_time_auth_code)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Button(onClick = onSubmitCode, enabled = code.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
-                        Text("Complete sign-in")
+                        Text(stringResource(R.string.st_complete_signin))
                     }
                 }
                 AntigravityAuthStatus.SIGNED_OUT, AntigravityAuthStatus.ERROR -> Button(
                     onClick = onStartLogin,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (auth.status == AntigravityAuthStatus.ERROR) "Reconnect with Google" else "Sign in with Google") }
+                ) { Text(if (auth.status == AntigravityAuthStatus.ERROR) stringResource(R.string.st_reconnect_google) else stringResource(R.string.agent_google_signin)) }
             }
         }
     }
 
     if (auth.status == AntigravityAuthStatus.SIGNED_IN) {
-        Text("Model", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.st_model), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         OutlinedTextField(
             value = state.antigravityModel,
             onValueChange = onSetModel,
-            label = { Text("Antigravity model ID") },
+            label = { Text(stringResource(R.string.st_antigravity_model_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -575,7 +758,7 @@ private fun AntigravityConnectionSettings(
             if (state.antigravityModelsLoading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             else Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
             Spacer(Modifier.width(7.dp))
-            Text("Refresh models")
+            Text(stringResource(R.string.provider_refresh_models))
         }
         state.antigravityModels.forEach { model ->
             Row(
@@ -586,11 +769,18 @@ private fun AntigravityConnectionSettings(
                 SelectionDot(state.antigravityModel == model)
             }
         }
-        Text("Reasoning effort", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.st_reasoning_effort), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("low", "medium", "high").forEach { effort ->
                 OutlinedButton(onClick = { onSetEffort(effort) }, modifier = Modifier.weight(1f)) {
-                    Text(effort.replaceFirstChar(Char::uppercase))
+                    Text(
+                        when (effort) {
+                            "low" -> stringResource(R.string.st_effort_low)
+                            "medium" -> stringResource(R.string.st_effort_medium)
+                            "high" -> stringResource(R.string.st_effort_high)
+                            else -> effort
+                        },
+                    )
                 }
             }
         }
@@ -598,7 +788,7 @@ private fun AntigravityConnectionSettings(
 
     Surface(color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f), shape = RoundedCornerShape(12.dp)) {
         Text(
-            "Antigravity runs with automatic tool approval. It can edit files and execute commands inside the selected project. Review generated changes before keeping them.",
+            stringResource(R.string.st_antigravity_approval_warning),
             Modifier.fillMaxWidth().padding(12.dp),
             color = MaterialTheme.colorScheme.onErrorContainer,
             fontSize = 11.sp,
@@ -652,22 +842,22 @@ private fun ConnectionSettings(
             ))
             Spacer(Modifier.width(9.dp))
             Column(Modifier.weight(1f)) {
-                Text("Active connection", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(state.provider.model.ifBlank { "Not configured" }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(stringResource(R.string.provider_active_connection), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(state.provider.model.ifBlank { stringResource(R.string.st_not_configured) }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 state.activeApiKeyName?.let { name ->
-                    Text("Key: $name", fontSize = 11.sp, color = PocketOrange, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(stringResource(R.string.st_key_label, name), fontSize = 11.sp, color = PocketOrange, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 state.apiPingMessage?.let {
                     Text(it, fontSize = 11.sp, color = if (state.apiPingStatus == ApiPingStatus.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
             OutlinedButton(onClick = onPing, enabled = state.apiPingStatus != ApiPingStatus.PINGING, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                Text(if (state.apiPingStatus == ApiPingStatus.PINGING) "Testing…" else "Test")
+                Text(if (state.apiPingStatus == ApiPingStatus.PINGING) stringResource(R.string.provider_testing) else stringResource(R.string.action_test))
             }
         }
     }
 
-    Text("Provider", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Text(stringResource(R.string.provider_label), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
     Surface(
         modifier = Modifier.fillMaxWidth().clickable { providerExpanded = !providerExpanded },
         shape = RoundedCornerShape(14.dp),
@@ -676,10 +866,10 @@ private fun ConnectionSettings(
     ) {
         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(selectedKind.title, fontWeight = FontWeight.SemiBold)
-                Text(selectedKind.subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                Text(selectedKind.localizedTitle(), fontWeight = FontWeight.SemiBold)
+                Text(selectedKind.localizedSubtitle(), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
-            Icon(if (providerExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, "Choose provider")
+            Icon(if (providerExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, stringResource(R.string.st_choose_provider))
         }
     }
     AnimatedVisibility(providerExpanded) {
@@ -694,8 +884,8 @@ private fun ConnectionSettings(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(kind.title, fontWeight = FontWeight.Medium)
-                        Text(kind.subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(kind.localizedTitle(), fontWeight = FontWeight.Medium)
+                        Text(kind.localizedSubtitle(), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                     SelectionDot(selectedKind == kind)
                 }
@@ -714,10 +904,10 @@ private fun ConnectionSettings(
             overflow = TextOverflow.Ellipsis,
         )
     } else {
-        OutlinedTextField(baseUrl, onBaseUrl, label = { Text("Base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(baseUrl, onBaseUrl, label = { Text(stringResource(R.string.provider_base_url)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
     }
     if (state.agentKind == AgentKind.DEEPSEEK_HARNESS && selectedKind in DSH_PROTOCOL_PROVIDERS) {
-        Text("Gateway protocol", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.provider_gateway_protocol), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)) {
             Column {
                 listOf("anthropic-messages", "openai-completions", "openai-responses").forEach { option ->
@@ -732,25 +922,25 @@ private fun ConnectionSettings(
             }
         }
     }
-    Text("Model", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    OutlinedTextField(model, onModel, label = { Text("Model ID") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    Text(stringResource(R.string.st_model), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    OutlinedTextField(model, onModel, label = { Text(stringResource(R.string.provider_model_id)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
     OutlinedButton(onClick = onModels, enabled = baseUrl.isNotBlank() && apiKey.isNotBlank() && !isDiscovering, modifier = Modifier.fillMaxWidth().height(50.dp)) {
         if (isDiscovering) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
         else Icon(if (models.isEmpty()) Icons.Default.Search else Icons.Default.KeyboardArrowDown, null, Modifier.size(18.dp))
         Spacer(Modifier.width(7.dp))
-        Text(if (models.isEmpty()) "Find available models" else "Available models (${models.size})")
+        Text(if (models.isEmpty()) stringResource(R.string.provider_find_models) else stringResource(R.string.provider_available_models_count, models.size))
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("API keys", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("${savedKeys.size} saved · automatic failover enabled", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.provider_api_keys), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(stringResource(R.string.st_saved_keys_failover, savedKeys.size), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         OutlinedButton(onClick = { addKeyExpanded = !addKeyExpanded }) {
-            Text(if (addKeyExpanded) "Cancel" else "Add key")
+            Text(if (addKeyExpanded) stringResource(R.string.action_cancel) else stringResource(R.string.provider_add_key))
         }
     }
     if (savedKeys.isNotEmpty()) {
-        Text("Saved API keys", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.st_saved_api_keys), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)) {
             Column {
                 savedKeys.forEachIndexed { index, key ->
@@ -761,14 +951,14 @@ private fun ConnectionSettings(
                         Column(Modifier.weight(1f)) {
                             Text(key.name, fontWeight = FontWeight.Medium)
                             Text(
-                                if (key.isActive) "Active now · tap another key to switch" else "Tap to make active",
+                                if (key.isActive) stringResource(R.string.st_active_now_switch) else stringResource(R.string.st_tap_to_make_active),
                                 fontSize = 11.sp,
                                 color = if (key.isActive) PocketOrange else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         SelectionDot(key.isActive)
                         IconButton(onClick = { onRemoveKey(key.id) }) {
-                            Icon(Icons.Default.DeleteSweep, "Remove ${key.name}", Modifier.size(18.dp))
+                            Icon(Icons.Default.DeleteSweep, stringResource(R.string.st_remove_named, key.name), Modifier.size(18.dp))
                         }
                     }
                     if (index != savedKeys.lastIndex) HorizontalDivider(Modifier.padding(start = 13.dp))
@@ -781,21 +971,21 @@ private fun ConnectionSettings(
             OutlinedTextField(
                 newKeyName,
                 onNewKeyName,
-                label = { Text("Key name") },
-                placeholder = { Text("Work, Personal, Backup…") },
+                label = { Text(stringResource(R.string.provider_key_name)) },
+                placeholder = { Text(stringResource(R.string.st_key_name_placeholder)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
                 newApiKey,
                 onNewApiKey,
-                label = { Text("API key") },
+                label = { Text(stringResource(R.string.provider_api_key)) },
                 singleLine = true,
                 visualTransformation = if (newKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 trailingIcon = {
                     IconButton(onClick = onToggleNewKey) {
-                        Icon(if (newKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Show or hide new key")
+                        Icon(if (newKeyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, stringResource(R.string.st_show_hide_new_key))
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -808,7 +998,7 @@ private fun ConnectionSettings(
                 enabled = newKeyName.isNotBlank() && newApiKey.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().height(50.dp),
             ) {
-                Text("Save API key")
+                Text(stringResource(R.string.st_save_api_key))
             }
         }
     }
@@ -824,7 +1014,7 @@ private fun ConnectionSettings(
             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             Spacer(Modifier.width(8.dp))
         }
-        Text(if (isValidating) "Checking connection" else "Test connection and save")
+        Text(if (isValidating) stringResource(R.string.st_checking_connection_plain) else stringResource(R.string.st_test_connection_and_save))
     }
 }
 
@@ -872,14 +1062,14 @@ private fun DebugUpdateChannelSection(
     var url by rememberSaveable(initialUrl) { mutableStateOf(initialUrl) }
     val isOverridden = initialUrl.isNotBlank()
     SettingsAccordion(
-        title = "Update channel",
-        subtitle = if (isOverridden) "Overridden · debug only" else "Default GitHub release",
+        title = stringResource(R.string.st_update_channel),
+        subtitle = if (isOverridden) stringResource(R.string.st_update_channel_overridden) else stringResource(R.string.st_update_channel_default),
         icon = Icons.Default.Tune,
         expanded = expanded,
         onClick = { expanded = !expanded },
     ) {
         Text(
-            "Debug builds only. Paste the temporary manifest URL from Cloudflare Tunnel, ngrok, or any HTTPS server hosting mobile-harness-update.json and a newer APK.",
+            stringResource(R.string.st_update_channel_help),
             fontSize = 12.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -887,7 +1077,7 @@ private fun DebugUpdateChannelSection(
         OutlinedTextField(
             value = url,
             onValueChange = { url = it },
-            label = { Text("Manifest URL") },
+            label = { Text(stringResource(R.string.st_manifest_url)) },
             placeholder = { Text("https://your-tunnel.example/mobile-harness-update.json") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -903,20 +1093,20 @@ private fun DebugUpdateChannelSection(
                 enabled = url.startsWith("https://"),
                 modifier = Modifier.weight(1f),
             ) {
-                Text(if (isOverridden) "Replace" else "Use & check")
+                Text(if (isOverridden) stringResource(R.string.st_replace) else stringResource(R.string.st_use_and_check))
             }
             OutlinedButton(
                 onClick = onClear,
                 enabled = isOverridden,
                 modifier = Modifier.weight(1f),
             ) {
-                Text("Reset")
+                Text(stringResource(R.string.st_reset))
             }
         }
         if (isOverridden) {
             Spacer(Modifier.height(6.dp))
             Text(
-                "Current: $initialUrl",
+                stringResource(R.string.st_current_url, initialUrl),
                 fontSize = 11.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

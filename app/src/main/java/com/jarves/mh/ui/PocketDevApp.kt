@@ -8,6 +8,11 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import android.net.Uri
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import android.provider.Settings
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -18,9 +23,7 @@ import android.widget.Toast
 import com.jarves.mh.BuildConfig
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
@@ -61,6 +64,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -72,6 +76,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -82,6 +88,15 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Android
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.InstallMobile
+import androidx.compose.material.icons.filled.Launch
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.ClearAll
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Code
@@ -103,20 +118,26 @@ import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.NoteAdd
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.BatterySaver
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Preview
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.filled.Redo
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -126,6 +147,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
@@ -133,6 +155,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -145,6 +168,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -163,8 +189,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -194,6 +225,8 @@ import com.jarves.mh.model.DiffLine
 import com.jarves.mh.model.DiffLineType
 import com.jarves.mh.model.Project
 import com.jarves.mh.model.ProjectKind
+import com.jarves.mh.model.ProjectType
+import com.jarves.mh.model.AndroidTemplate
 import com.jarves.mh.model.ProjectChat
 import com.jarves.mh.model.ProviderKind
 import com.jarves.mh.model.ProviderProfile
@@ -206,6 +239,14 @@ import com.jarves.mh.runtime.RuntimeExecutionService
 import com.jarves.mh.runtime.RuntimeSetupService
 import com.jarves.mh.runtime.supportsArm64Runtime
 import com.jarves.mh.runtime.AntigravityAuthStatus
+import com.jarves.mh.runtime.AndroidAction
+import com.jarves.mh.runtime.AndroidBuildIssue
+import com.jarves.mh.runtime.AndroidBuildStage
+import com.jarves.mh.runtime.AndroidHealthCheck
+import com.jarves.mh.runtime.AndroidHealthFix
+import com.jarves.mh.runtime.AndroidHealthStatus
+import com.jarves.mh.runtime.AndroidLogLevel
+import com.jarves.mh.runtime.AndroidLogLine
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
@@ -226,22 +267,30 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 
+import androidx.annotation.StringRes
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.runtime.CompositionLocalProvider
+import com.jarves.mh.R
+import com.jarves.mh.ui.theme.AppLanguage
 import com.jarves.mh.ui.theme.AppThemeMode
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.ExtendedFloatingActionButton
 
-private enum class RootScreen(val label: String, val icon: ImageVector) {
-    PROJECTS("Projects", Icons.Default.Folder),
-    AGENT("Agent", Icons.Default.SmartToy),
-    SETTINGS("Settings", Icons.Default.Settings),
+private enum class RootScreen(@StringRes val labelRes: Int, val icon: ImageVector) {
+    PROJECTS(R.string.tab_projects, Icons.Default.Folder),
+    AGENT(R.string.tab_agent, Icons.Default.SmartToy),
+    SETTINGS(R.string.tab_settings, Icons.Default.Settings),
 }
-private enum class WorkspaceTab(val label: String, val icon: ImageVector) {
-    CHAT("Chat", Icons.Default.AutoAwesome),
-    FILES("Files", Icons.Default.Folder),
-    TERMINAL("Terminal", Icons.Default.Terminal),
-    CHANGES("Changes", Icons.Default.Code),
-    PREVIEW("Preview", Icons.Default.Preview),
+private enum class WorkspaceTab(@StringRes val labelRes: Int, val icon: ImageVector) {
+    CHAT(R.string.tab_chat, Icons.Default.AutoAwesome),
+    FILES(R.string.tab_files, Icons.Default.Folder),
+    TERMINAL(R.string.tab_terminal, Icons.Default.Terminal),
+    CHANGES(R.string.tab_changes, Icons.Default.Code),
+    PREVIEW(R.string.tab_preview, Icons.Default.Preview),
 }
 
 @Composable
@@ -261,8 +310,18 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             themeMode = state.themeMode,
             onToggleTheme = viewModel::toggleTheme,
         )
+        !state.initialLanguageSelected && (state.startupStage == StartupStage.SETUP_REQUIRED || !state.onboardingComplete) ->
+            InitialLanguageSetupScreen(
+                currentLanguageCode = state.languageCode,
+                themeMode = state.themeMode,
+                onToggleTheme = viewModel::toggleTheme,
+                onSelectLanguage = viewModel::setLanguage,
+                onContinue = viewModel::finishInitialLanguageSetup,
+            )
         !state.backgroundSetupComplete && state.startupStage == StartupStage.SETUP_REQUIRED ->
             BackgroundTaskSetupScreen(
+                currentLanguageCode = state.languageCode,
+                onSetLanguage = viewModel::setLanguage,
                 themeMode = state.themeMode,
                 onToggleTheme = viewModel::toggleTheme,
                 onContinue = viewModel::finishBackgroundSetup,
@@ -271,6 +330,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             selectedStacks = state.selectedDevStacks,
             selectedAgent = state.agentKind,
             themeMode = state.themeMode,
+            currentLanguageCode = state.languageCode,
+            onSetLanguage = viewModel::setLanguage,
             onToggleTheme = viewModel::toggleTheme,
             onToggleStack = viewModel::toggleDevStack,
             onSelectAgent = viewModel::selectAgent,
@@ -299,6 +360,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         state.startupStage == StartupStage.MODEL_SETUP && state.agentKind == AgentKind.ANTIGRAVITY ->
             AntigravityOnboardingScreen(
                 state = state,
+                currentLanguageCode = state.languageCode,
+                onSetLanguage = viewModel::setLanguage,
                 onStartLogin = viewModel::startAntigravityLogin,
                 onSubmitCode = viewModel::submitAntigravityCode,
                 onContinue = viewModel::finishAntigravityOnboarding,
@@ -310,6 +373,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onboarding = true,
             agentKind = state.agentKind,
             initialStep = 1,
+            currentLanguageCode = state.languageCode,
+            onSetLanguage = viewModel::setLanguage,
             onSave = viewModel::finishOnboarding,
             onDiscover = viewModel::discoverModels,
             onValidate = viewModel::validateProvider,
@@ -319,6 +384,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         )
         state.startupStage == StartupStage.READY && !state.backgroundSetupComplete ->
             BackgroundTaskSetupScreen(
+                currentLanguageCode = state.languageCode,
+                onSetLanguage = viewModel::setLanguage,
                 themeMode = state.themeMode,
                 onToggleTheme = viewModel::toggleTheme,
                 onContinue = viewModel::finishBackgroundSetup,
@@ -334,17 +401,27 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onBack = viewModel::closeProject,
             onSend = viewModel::sendPrompt,
             onStop = viewModel::stopTask,
+            onSteerFollowUp = viewModel::steerQueuedFollowUp,
+            onRemoveFollowUp = viewModel::removeQueuedFollowUp,
             onApproval = viewModel::answerApproval,
             onRefreshFiles = viewModel::refreshProjectFiles,
+            onLoadProjectDirectory = viewModel::loadProjectDirectory,
+            onCreateWorkspaceEntry = viewModel::createWorkspaceEntry,
+            onRenameWorkspaceEntry = viewModel::renameWorkspaceEntry,
+            onDeleteWorkspaceEntry = viewModel::deleteWorkspaceEntry,
+            onUploadToWorkspace = viewModel::uploadToWorkspace,
+            onShareWorkspaceFile = viewModel::shareWorkspaceFile,
+            onSaveWorkspaceFileCopy = viewModel::saveWorkspaceFileCopy,
+            onOpenWithFile = viewModel::openWithFile,
+            onInstallApk = viewModel::installWorkspaceApk,
             onOpenFile = viewModel::openFile,
             onCloseFile = viewModel::closeFile,
-            onSaveFile = viewModel::saveWorkspaceFile,
-            onDeleteFile = viewModel::deleteWorkspaceFile,
-            onExportFile = viewModel::exportSingleFile,
-            onShareFile = viewModel::shareSingleFile,
-            onOpenWithFile = viewModel::openWithFile,
-            onReloadOpenedFile = viewModel::reloadOpenedFile,
-            onInstallApk = viewModel::installWorkspaceApk,
+            onBeginFileEdit = viewModel::beginFileEdit,
+            onUpdateFileDraft = viewModel::updateFileDraft,
+            onCancelFileEdit = viewModel::cancelFileEdit,
+            onSaveFile = viewModel::saveOpenedFile,
+            onReloadFile = viewModel::reloadOpenedFile,
+            onDismissFileConflict = viewModel::dismissFileConflict,
             onUndoChanges = viewModel::undoLastChanges,
             onKeepChanges = viewModel::keepLastChanges,
             onUndoFileChange = viewModel::undoFileChange,
@@ -367,6 +444,25 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onRemoveAttachment = viewModel::removePendingAttachment,
             onOpenAttachment = viewModel::openChatAttachment,
             onBuildAndRunAndroid = viewModel::buildAndRunAndroidApp,
+            onAndroidAction = viewModel::performAndroidAction,
+            onRefreshAndroidDashboard = viewModel::refreshAndroidDashboard,
+            onShareAndroidApk = viewModel::shareAndroidApk,
+            onSaveAndroidApk = viewModel::saveAndroidApk,
+            onOpenAndroidAppDetails = viewModel::openInstalledAndroidAppDetails,
+            onUninstallAndroidApp = viewModel::uninstallAndroidApp,
+            onOpenAndroidIssue = viewModel::openAndroidIssue,
+            onAndroidHealthFix = viewModel::performAndroidHealthFix,
+            onRefreshAndroidHealth = viewModel::refreshAndroidHealth,
+            onStartAndroidLogcat = viewModel::startAndroidLogcat,
+            onStopAndroidLogcat = viewModel::stopAndroidLogcat,
+            onToggleAndroidLogcatPause = viewModel::toggleAndroidLogcatPause,
+            onClearAndroidLogcat = viewModel::clearAndroidLogcat,
+            onAndroidLogcatQuery = viewModel::setAndroidLogcatQuery,
+            onAndroidLogcatLevel = viewModel::setAndroidLogcatLevel,
+            onOpenAndroidLogLine = viewModel::openAndroidLogLine,
+            onCancelAndroidBuild = viewModel::cancelAndroidBuild,
+            onCleanAndroid = viewModel::cleanAndroidProject,
+            onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
         )
         else -> RootScreenHost(state, viewModel, projectsListState)
     }
@@ -376,6 +472,8 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
 @Composable
 private fun AntigravityOnboardingScreen(
     state: AppUiState,
+    currentLanguageCode: String,
+    onSetLanguage: (String) -> Unit,
     onStartLogin: () -> Unit,
     onSubmitCode: (String) -> Unit,
     onContinue: () -> Unit,
@@ -398,8 +496,11 @@ private fun AntigravityOnboardingScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Set up Antigravity") },
-                actions = { IconButton(onClick = onToggleTheme) { Icon(Icons.Default.DarkMode, "Toggle theme") } },
+                title = { Text(stringResource(R.string.ws_agy_setup_title)) },
+                actions = {
+                    LanguagePickerAction(currentLanguageCode, onSetLanguage)
+                    IconButton(onClick = onToggleTheme) { Icon(Icons.Default.DarkMode, stringResource(R.string.theme_toggle)) }
+                },
             )
         },
     ) { padding ->
@@ -407,28 +508,28 @@ private fun AntigravityOnboardingScreen(
             Modifier.fillMaxSize().padding(padding).padding(24.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Connect your Google account", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.ws_agy_connect_google), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Text(
-                "PocketDev runs Google's official agy CLI inside its private Linux environment. Google handles authentication and agy owns the saved session.",
+                stringResource(R.string.ws_agy_connect_desc),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             when (state.antigravityAuth.status) {
                 AntigravityAuthStatus.SIGNED_OUT, AntigravityAuthStatus.ERROR -> {
                     state.antigravityAuth.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button(onClick = onStartLogin, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                        Text("Sign in with Google")
+                        Text(stringResource(R.string.agent_google_signin))
                     }
                 }
                 AntigravityAuthStatus.STARTING -> {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text("Starting the official Antigravity login…")
+                    Text(stringResource(R.string.ws_agy_starting_login))
                 }
                 AntigravityAuthStatus.COMPLETING -> {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
-                    Text("Completing Google sign-in…")
+                    Text(stringResource(R.string.ws_agy_completing_signin))
                 }
                 AntigravityAuthStatus.AWAITING_CODE -> {
-                    Text("Google sign-in opened in your browser. Copy the one-time code shown after approval.")
+                    Text(stringResource(R.string.ws_agy_signin_opened))
                     state.antigravityAuth.authorizationUrl?.let { url ->
                         OutlinedButton(
                             onClick = { clipboard.setText(AnnotatedString(url)) },
@@ -436,13 +537,13 @@ private fun AntigravityOnboardingScreen(
                         ) {
                             Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Copy sign-in URL")
+                            Text(stringResource(R.string.ws_agy_copy_signin_url))
                         }
                     }
                     OutlinedTextField(
                         value = code,
                         onValueChange = { code = it },
-                        label = { Text("Authorization code") },
+                        label = { Text(stringResource(R.string.ws_agy_authorization_code)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -450,19 +551,19 @@ private fun AntigravityOnboardingScreen(
                         onClick = { onSubmitCode(code); code = "" },
                         enabled = code.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Complete sign-in") }
+                    ) { Text(stringResource(R.string.ws_agy_complete_signin)) }
                 }
                 AntigravityAuthStatus.SIGNED_IN -> {
                     Surface(color = PocketGreen.copy(alpha = 0.12f), shape = RoundedCornerShape(14.dp)) {
                         Text(
-                            state.antigravityAuth.accountEmail?.let { "Connected as $it" } ?: "Google account connected",
+                            state.antigravityAuth.accountEmail?.let { stringResource(R.string.ws_agy_connected_as, it) } ?: stringResource(R.string.ws_agy_google_connected),
                             Modifier.fillMaxWidth().padding(16.dp),
                             color = PocketGreen,
                             fontWeight = FontWeight.SemiBold,
                         )
                     }
                     Button(onClick = onContinue, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-                        Text("Continue")
+                        Text(stringResource(R.string.action_continue))
                     }
                 }
             }
@@ -470,11 +571,11 @@ private fun AntigravityOnboardingScreen(
                 onClick = { showAgentPicker = true },
                 modifier = Modifier.align(Alignment.CenterHorizontally),
             ) {
-                Text("Use another coding agent", fontSize = 12.sp)
+                Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
             }
             Surface(color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(14.dp)) {
                 Text(
-                    "Automatic tool approval is enabled for Antigravity. It can edit project files and run commands without confirmation. Changes remain reviewable in PocketDev.",
+                    stringResource(R.string.ws_agy_auto_approval_warning),
                     Modifier.fillMaxWidth().padding(14.dp),
                     color = MaterialTheme.colorScheme.onErrorContainer,
                     fontSize = 12.sp,
@@ -486,7 +587,238 @@ private fun AntigravityOnboardingScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun InitialLanguageSetupScreen(
+    currentLanguageCode: String,
+    themeMode: AppThemeMode = AppThemeMode.DARK,
+    onToggleTheme: () -> Unit = {},
+    onSelectLanguage: (String) -> Unit,
+    onContinue: () -> Unit,
+) {
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        BrandMark(compact = true)
+                        Spacer(Modifier.width(9.dp))
+                        Text("Mobile Harness", fontWeight = FontWeight.Bold)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onToggleTheme) {
+                        Icon(
+                            if (themeMode == AppThemeMode.DARK) Icons.Default.LightMode else Icons.Default.DarkMode,
+                            contentDescription = stringResource(R.string.theme_toggle),
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+            )
+        },
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(44.dp)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Default.Language,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Spacer(Modifier.width(14.dp))
+                Column {
+                    Text(
+                        stringResource(R.string.language_welcome_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                stringResource(R.string.language_welcome_subtitle),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(20.dp))
+
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Column {
+                    AppLanguage.entries.forEachIndexed { index, lang ->
+                        val isSelected = (currentLanguageCode == lang.code) ||
+                            (currentLanguageCode.isBlank() && lang == AppLanguage.SYSTEM)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectLanguage(lang.code) }
+                                .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (lang == AppLanguage.SYSTEM) {
+                                        stringResource(R.string.language_system_default)
+                                    } else {
+                                        lang.nativeName
+                                    },
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    fontSize = 15.sp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                )
+                                if (lang != AppLanguage.SYSTEM) {
+                                    Text(
+                                        text = lang.displayName,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            if (isSelected) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = stringResource(R.string.ws_selected),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                        if (index != AppLanguage.entries.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+            Button(
+                onClick = onContinue,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Text(
+                    stringResource(R.string.action_continue),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                )
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Spacer(Modifier.height(28.dp))
+        }
+    }
+}
+
+@Composable
+private fun LanguagePickerAction(
+    currentLanguageCode: String,
+    onSelectLanguage: (String) -> Unit,
+) {
+    var showLanguageDialog by rememberSaveable { mutableStateOf(false) }
+    IconButton(onClick = { showLanguageDialog = true }) {
+        Icon(
+            Icons.Default.Language,
+            contentDescription = stringResource(R.string.language_choose_title),
+        )
+    }
+    if (showLanguageDialog) {
+        LanguagePickerDialog(
+            currentLanguageCode = currentLanguageCode,
+            onSelectLanguage = {
+                onSelectLanguage(it)
+                showLanguageDialog = false
+            },
+            onDismiss = { showLanguageDialog = false },
+        )
+    }
+}
+
+@Composable
+private fun LanguagePickerDialog(
+    currentLanguageCode: String,
+    onSelectLanguage: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Language, contentDescription = null) },
+        title = { Text(stringResource(R.string.language_choose_title)) },
+        text = {
+            Column {
+                AppLanguage.entries.forEach { language ->
+                    val selected = AppLanguage.fromCode(currentLanguageCode) == language
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelectLanguage(language.code) }
+                            .background(
+                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+                                else Color.Transparent,
+                                RoundedCornerShape(10.dp),
+                            )
+                            .padding(horizontal = 12.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (language == AppLanguage.SYSTEM) stringResource(R.string.language_system_default)
+                            else language.nativeName,
+                            modifier = Modifier.weight(1f),
+                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (selected) {
+                            Icon(
+                                Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(19.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun BackgroundTaskSetupScreen(
+    currentLanguageCode: String = "system",
+    onSetLanguage: (String) -> Unit = {},
     themeMode: AppThemeMode = AppThemeMode.DARK,
     onToggleTheme: () -> Unit = {},
     onContinue: () -> Unit,
@@ -534,19 +866,19 @@ private fun BackgroundTaskSetupScreen(
         else -> Icons.Default.Shield
     }
     val currentTitle = when (currentStep) {
-        0 -> "Task notifications"
-        1 -> "Background reliability"
-        else -> "Task protection"
+        0 -> stringResource(R.string.bg_notifications_title)
+        1 -> stringResource(R.string.bg_reliability_title)
+        else -> stringResource(R.string.bg_protection_title)
     }
     val currentDescription = when (currentStep) {
-        0 -> "See live progress and receive an alert when Claude finishes or needs your attention."
-        1 -> "Allow Mobile Harness to continue a task when you lock the phone or switch to another app."
-        else -> "Keep the CPU awake only while a visible coding task is running, then release it automatically."
+        0 -> stringResource(R.string.bg_notifications_desc)
+        1 -> stringResource(R.string.bg_reliability_desc)
+        else -> stringResource(R.string.bg_protection_desc)
     }
     val currentPrivacyNote = when (currentStep) {
-        0 -> "Only task progress, completion, and error notifications are sent."
-        1 -> "You remain in control and can stop every task from its notification."
-        else -> "The screen stays off. Protection is capped at 90 minutes and stops with the task."
+        0 -> stringResource(R.string.bg_notifications_privacy)
+        1 -> stringResource(R.string.bg_reliability_privacy)
+        else -> stringResource(R.string.bg_protection_privacy)
     }
     val currentGranted = when (currentStep) {
         0 -> notificationGranted
@@ -566,10 +898,11 @@ private fun BackgroundTaskSetupScreen(
                     }
                 },
                 actions = {
+                    LanguagePickerAction(currentLanguageCode, onSetLanguage)
                     IconButton(onClick = onToggleTheme) {
                         Icon(
                             if (themeMode == AppThemeMode.DARK) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = "Toggle theme",
+                            contentDescription = stringResource(R.string.theme_toggle),
                         )
                     }
                 },
@@ -585,10 +918,10 @@ private fun BackgroundTaskSetupScreen(
                 .verticalScroll(rememberScrollState()),
         ) {
             Spacer(Modifier.height(8.dp))
-            Text("Prepare for reliable setup", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.bg_setup_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(8.dp))
             Text(
-                "Setup time depends on the toolchains you choose next. You may leave Mobile Harness in the background while it works.",
+                stringResource(R.string.bg_setup_subtitle),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 lineHeight = 18.sp,
@@ -604,11 +937,11 @@ private fun BackgroundTaskSetupScreen(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column {
-                    PermissionSummaryRow(Icons.Default.Notifications, "Notifications", notificationGranted, currentStep == 0)
+                    PermissionSummaryRow(Icons.Default.Notifications, stringResource(R.string.bg_step_notifications), notificationGranted, currentStep == 0)
                     HorizontalDivider(modifier = Modifier.padding(start = 58.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    PermissionSummaryRow(Icons.Default.BatterySaver, "Background", batteryGranted, currentStep == 1)
+                    PermissionSummaryRow(Icons.Default.BatterySaver, stringResource(R.string.bg_step_background), batteryGranted, currentStep == 1)
                     HorizontalDivider(modifier = Modifier.padding(start = 58.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    PermissionSummaryRow(Icons.Default.Shield, "Task protection", taskProtectionConfirmed, currentStep == 2)
+                    PermissionSummaryRow(Icons.Default.Shield, stringResource(R.string.bg_step_task_protection), taskProtectionConfirmed, currentStep == 2)
                 }
             }
 
@@ -629,10 +962,10 @@ private fun BackgroundTaskSetupScreen(
                         }
                         Spacer(Modifier.width(12.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("STEP ${currentStep + 1} OF 3", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                            Text(stringResource(R.string.bg_step_indicator, currentStep + 1, 3), color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                             Text(currentTitle, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         }
-                        if (currentGranted) Icon(Icons.Default.Check, "Granted", tint = PocketGreen)
+                        if (currentGranted) Icon(Icons.Default.Check, stringResource(R.string.bg_status_granted), tint = PocketGreen)
                     }
                     Spacer(Modifier.height(14.dp))
                     Text(currentDescription, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 18.sp)
@@ -691,9 +1024,9 @@ private fun BackgroundTaskSetupScreen(
                     ) {
                         Text(
                             when (currentStep) {
-                                0 -> if (notificationGranted) "Next" else if (notificationDenied) "Open notification settings" else "Allow notifications"
-                                1 -> if (batteryGranted) "Next" else "Open battery settings"
-                                else -> "Enable and finish"
+                                0 -> if (notificationGranted) stringResource(R.string.action_next) else if (notificationDenied) stringResource(R.string.bg_notifications_settings) else stringResource(R.string.bg_notifications_allow)
+                                1 -> if (batteryGranted) stringResource(R.string.action_next) else stringResource(R.string.bg_reliability_settings)
+                                else -> stringResource(R.string.bg_protection_enable)
                             },
                             fontWeight = FontWeight.Bold,
                         )
@@ -705,7 +1038,7 @@ private fun BackgroundTaskSetupScreen(
                             onClick = { currentStep += 1 },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text(if (currentStep == 0) "Continue without notifications" else "Continue without battery exemption")
+                            Text(if (currentStep == 0) stringResource(R.string.bg_notifications_skip) else stringResource(R.string.bg_reliability_skip))
                         }
                     }
                 }
@@ -713,7 +1046,7 @@ private fun BackgroundTaskSetupScreen(
 
             Spacer(Modifier.height(16.dp))
             Text(
-                "You can change these settings later. Android may still stop exceptionally heavy work when the device is low on memory.",
+                stringResource(R.string.bg_setup_footer),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 10.5.sp,
                 lineHeight = 15.sp,
@@ -754,9 +1087,9 @@ private fun PermissionSummaryRow(
             fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
         )
         when {
-            complete -> Icon(Icons.Default.Check, "Complete", tint = PocketGreen, modifier = Modifier.size(18.dp))
-            active -> Text("Required", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            else -> Text("Next", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+            complete -> Icon(Icons.Default.Check, stringResource(R.string.bg_status_granted), tint = PocketGreen, modifier = Modifier.size(18.dp))
+            active -> Text(stringResource(R.string.bg_status_required), color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            else -> Text(stringResource(R.string.bg_status_next), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
         }
     }
 }
@@ -801,6 +1134,8 @@ private fun RuntimeSetupPromptScreen(
     selectedStacks: Set<DevStack>,
     selectedAgent: AgentKind = AgentKind.CLAUDE_CODE,
     themeMode: AppThemeMode = AppThemeMode.DARK,
+    currentLanguageCode: String = "system",
+    onSetLanguage: (String) -> Unit = {},
     onToggleTheme: () -> Unit = {},
     onToggleStack: (DevStack) -> Unit,
     onSelectAgent: (AgentKind) -> Unit = {},
@@ -841,15 +1176,16 @@ private fun RuntimeSetupPromptScreen(
                 navigationIcon = {
                     if (currentStep > 0) {
                         IconButton(onClick = { currentStep = 0 }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back))
                         }
                     }
                 },
                 actions = {
+                    LanguagePickerAction(currentLanguageCode, onSetLanguage)
                     IconButton(onClick = onToggleTheme) {
                         Icon(
                             if (themeMode == AppThemeMode.DARK) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = "Toggle theme",
+                            contentDescription = stringResource(R.string.theme_toggle),
                         )
                     }
                 },
@@ -869,7 +1205,7 @@ private fun RuntimeSetupPromptScreen(
             if (currentStep == 0) {
                 // Step 0: Device Compatibility & Verification
                 Text(
-                    text = "DEVICE CHECK",
+                    text = stringResource(R.string.runtime_setup_device_check_badge),
                     color = MaterialTheme.colorScheme.primary,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -877,14 +1213,14 @@ private fun RuntimeSetupPromptScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Ready to build on this phone",
+                    text = stringResource(R.string.runtime_setup_device_ready_title),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "Your phone meets the requirements. Choose your coding tools next and Mobile Harness will handle the setup.",
+                    text = stringResource(R.string.runtime_setup_device_ready_desc),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.5.sp,
                     lineHeight = 19.sp,
@@ -915,13 +1251,13 @@ private fun RuntimeSetupPromptScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Column {
                                     Text(
-                                        "System compatibility",
+                                        stringResource(R.string.runtime_setup_sys_compat),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Text(
-                                        if (compatible) "Your device is ready" else "This device is unsupported",
+                                        if (compatible) stringResource(R.string.runtime_setup_device_ready) else stringResource(R.string.runtime_setup_device_unsupported),
                                         fontSize = 10.5.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -933,7 +1269,7 @@ private fun RuntimeSetupPromptScreen(
                                 border = BorderStroke(0.5.dp, if (compatible) PocketGreen.copy(alpha = 0.35f) else MaterialTheme.colorScheme.error.copy(alpha = 0.35f)),
                             ) {
                                 Text(
-                                    text = if (compatible) "Ready" else "Unsupported",
+                                    text = if (compatible) stringResource(R.string.runtime_setup_status_ready) else stringResource(R.string.runtime_setup_status_unsupported),
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -946,26 +1282,26 @@ private fun RuntimeSetupPromptScreen(
 
                         SpecRow(
                             icon = Icons.Default.Memory,
-                            label = "Memory (RAM)",
-                            value = "$totalRamLabel GB usable",
+                            label = stringResource(R.string.runtime_setup_memory_ram),
+                            value = stringResource(R.string.runtime_setup_ram_usable, totalRamLabel),
                             statusOk = true,
                         )
 
                         SpecRow(
                             icon = Icons.Default.Code,
-                            label = "Processor",
+                            label = stringResource(R.string.runtime_setup_processor),
                             value = Build.SUPPORTED_ABIS.firstOrNull() ?: "arm64-v8a",
                             statusOk = arm64,
                         )
 
                         SpecRow(
                             icon = Icons.Default.Storage,
-                            label = "Required download",
-                            value = "149–774 MB",
+                            label = stringResource(R.string.runtime_setup_download_req),
+                            value = stringResource(R.string.runtime_setup_download_range),
                             statusOk = true,
                         )
                         Text(
-                            "Based on the tools you select",
+                            stringResource(R.string.runtime_setup_download_based_on_tools),
                             modifier = Modifier.padding(start = 26.dp),
                             fontSize = 10.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -994,7 +1330,7 @@ private fun RuntimeSetupPromptScreen(
                         horizontalArrangement = Arrangement.Center,
                     ) {
                         Text(
-                            text = if (compatible) "Continue to tool setup" else "Device not supported",
+                            text = if (compatible) stringResource(R.string.runtime_setup_continue_to_tools) else stringResource(R.string.runtime_setup_device_not_supported),
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                         )
@@ -1008,7 +1344,7 @@ private fun RuntimeSetupPromptScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "You can change tools later",
+                    stringResource(R.string.runtime_setup_change_tools_later),
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                     fontSize = 11.sp,
@@ -1016,7 +1352,7 @@ private fun RuntimeSetupPromptScreen(
                 )
             } else {
                 Text(
-                    "TOOLCHAIN SETUP",
+                    stringResource(R.string.runtime_setup_toolchain_badge),
                     color = MaterialTheme.colorScheme.primary,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
@@ -1024,14 +1360,14 @@ private fun RuntimeSetupPromptScreen(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Choose your tools",
+                    text = stringResource(R.string.runtime_setup_choose_tools_title),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "Start lightweight. You can install more toolchains later from Settings.",
+                    text = stringResource(R.string.runtime_setup_choose_tools_desc),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -1057,19 +1393,19 @@ private fun RuntimeSetupPromptScreen(
                         Spacer(Modifier.width(11.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                if (BuildConfig.OFFLINE_RUNTIME_BUNDLES) "Core runtime · 68.8 MB" else "Core runtime · 68.8 MB download",
+                                if (BuildConfig.OFFLINE_RUNTIME_BUNDLES) stringResource(R.string.runtime_setup_core_runtime) else stringResource(R.string.runtime_setup_core_runtime_download),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 13.5.sp,
                             )
                             Text("Ubuntu  ·  Node.js  ·  npm  ·  Git", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
                         }
-                        Icon(Icons.Default.Check, "Included", tint = PocketGreen, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Check, stringResource(R.string.tools_included), tint = PocketGreen, modifier = Modifier.size(20.dp))
                     }
                 }
 
                 Spacer(Modifier.height(18.dp))
-                Text("CODING AGENT", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.9.sp)
+                Text(stringResource(R.string.runtime_setup_coding_agent_badge), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.9.sp)
                 Spacer(Modifier.height(8.dp))
 
                 Surface(
@@ -1082,6 +1418,9 @@ private fun RuntimeSetupPromptScreen(
                         AgentKind.entries.forEachIndexed { index, agent ->
                             AgentChoiceRow(
                                 agent = agent,
+                                title = stringResource(agent.titleRes()),
+                                subtitle = stringResource(agent.subtitleRes()),
+                                recommendedLabel = stringResource(R.string.agent_recommended),
                                 selected = selectedAgent == agent,
                                 onClick = { onSelectAgent(agent) },
                             )
@@ -1095,14 +1434,14 @@ private fun RuntimeSetupPromptScreen(
                     }
                 }
                 Text(
-                    "Only the selected optional agent is downloaded. You can install or switch agents later from Settings.",
+                    stringResource(R.string.runtime_setup_coding_agent_note),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp),
                 )
 
                 Spacer(Modifier.height(18.dp))
-                Text("OPTIONAL TOOLCHAINS", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.9.sp)
+                Text(stringResource(R.string.runtime_setup_optional_toolchains_badge), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.9.sp)
                 Spacer(Modifier.height(8.dp))
 
                 Surface(
@@ -1163,7 +1502,7 @@ private fun RuntimeSetupPromptScreen(
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            text = if (compatible) "Install Mobile Harness" else "Device not supported",
+                            text = if (compatible) stringResource(R.string.runtime_setup_install_btn) else stringResource(R.string.runtime_setup_device_not_supported),
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                         )
@@ -1187,6 +1526,7 @@ private const val AGY_RUNTIME_DOWNLOAD_MB = 40
 private const val PYTHON_RUNTIME_DOWNLOAD_MB = 55
 private const val ANDROID_RUNTIME_DOWNLOAD_MB = 570
 
+@Composable
 private fun setupTimeEstimate(selected: Set<DevStack>): String {
     var minimumMinutes = 3
     var maximumMinutes = 5
@@ -1206,19 +1546,21 @@ private fun setupTimeEstimate(selected: Set<DevStack>): String {
         minimumMinutes += 2
         maximumMinutes += 4
     }
-    return "$minimumMinutes–$maximumMinutes minutes"
+    return stringResource(R.string.setup_time_minutes, minimumMinutes, maximumMinutes)
 }
 
+@Composable
 private fun stackDownloadLabel(stack: DevStack): String = when {
-    stack == DevStack.WEB -> " · included"
-    BuildConfig.OFFLINE_RUNTIME_BUNDLES && stack in setOf(DevStack.PYTHON, DevStack.ANDROID) -> " · included"
+    stack == DevStack.WEB -> " · " + stringResource(R.string.ws_stack_included)
+    BuildConfig.OFFLINE_RUNTIME_BUNDLES && stack in setOf(DevStack.PYTHON, DevStack.ANDROID) -> " · " + stringResource(R.string.ws_stack_included)
     !BuildConfig.OFFLINE_RUNTIME_BUNDLES && stack == DevStack.PYTHON -> " · 55 MB"
     !BuildConfig.OFFLINE_RUNTIME_BUNDLES && stack == DevStack.ANDROID -> " · 570 MB"
     else -> ""
 }
 
+@Composable
 private fun toolchainDownloadSummary(selected: Set<DevStack>, agent: AgentKind): String {
-    if (BuildConfig.OFFLINE_RUNTIME_BUNDLES) return "All selected bundles are included in this offline app"
+    if (BuildConfig.OFFLINE_RUNTIME_BUNDLES) return stringResource(R.string.ws_bundles_included_offline)
     val total = CORE_RUNTIME_DOWNLOAD_MB +
         when (agent) {
             AgentKind.CLAUDE_CODE -> CLAUDE_RUNTIME_DOWNLOAD_MB
@@ -1228,12 +1570,13 @@ private fun toolchainDownloadSummary(selected: Set<DevStack>, agent: AgentKind):
         (if (DevStack.PYTHON in selected) PYTHON_RUNTIME_DOWNLOAD_MB else 0) +
         (if (DevStack.ANDROID in selected) ANDROID_RUNTIME_DOWNLOAD_MB else 0)
     val laterPackages = selected.intersect(setOf(DevStack.CPP, DevStack.PHP))
+    val downloadText = stringResource(R.string.ws_download_total_mb, total)
+    val laterText = stringResource(R.string.ws_download_c_php_later)
+    val wifiText = stringResource(R.string.ws_download_wifi_recommended)
     return buildString {
-        append("Download: ")
-        append(total)
-        append(" MB")
-        if (laterPackages.isNotEmpty()) append(" · C/PHP packages download later")
-        if (total >= 500) append(" · Wi-Fi recommended")
+        append(downloadText)
+        if (laterPackages.isNotEmpty()) append(" · ").append(laterText)
+        if (total >= 500) append(" · ").append(wifiText)
     }
 }
 
@@ -1246,11 +1589,11 @@ private fun DevStackChoiceRow(
 ) {
     val visuals = getDevStackVisuals(stack)
     val conciseDescription = when (stack) {
-        DevStack.WEB -> "Included with the Core runtime"
-        DevStack.PYTHON -> "Scripts, automation and backends"
-        DevStack.ANDROID -> "Java and Kotlin build tools"
-        DevStack.CPP -> "Native apps and command-line tools"
-        DevStack.PHP -> "PHP sites and Laravel projects"
+        DevStack.WEB -> stringResource(R.string.ws_stack_desc_web)
+        DevStack.PYTHON -> stringResource(R.string.ws_stack_desc_python)
+        DevStack.ANDROID -> stringResource(R.string.ws_stack_desc_android)
+        DevStack.CPP -> stringResource(R.string.ws_stack_desc_cpp)
+        DevStack.PHP -> stringResource(R.string.ws_stack_desc_php)
     }
 
     Row(
@@ -1272,7 +1615,7 @@ private fun DevStackChoiceRow(
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                stack.label + stackDownloadLabel(stack),
+                stack.localizedLabel() + stackDownloadLabel(stack),
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp,
@@ -1293,7 +1636,7 @@ private fun DevStackChoiceRow(
             contentAlignment = Alignment.Center,
         ) {
             if (selected) {
-                Icon(Icons.Default.Check, "Selected", tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
+                Icon(Icons.Default.Check, stringResource(R.string.ws_selected), tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(14.dp))
             }
         }
     }
@@ -1302,6 +1645,9 @@ private fun DevStackChoiceRow(
 @Composable
 private fun AgentChoiceRow(
     agent: AgentKind,
+    title: String,
+    subtitle: String,
+    recommendedLabel: String,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
@@ -1336,7 +1682,7 @@ private fun AgentChoiceRow(
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    agent.title,
+                    title,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp,
@@ -1348,7 +1694,7 @@ private fun AgentChoiceRow(
                         shape = RoundedCornerShape(50),
                     ) {
                         Text(
-                            "Recommended",
+                            recommendedLabel,
                             modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
                             color = PocketOrange,
                             fontSize = 9.sp,
@@ -1360,7 +1706,7 @@ private fun AgentChoiceRow(
                 }
             }
             Spacer(Modifier.height(1.dp))
-            Text(agent.subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(1.dp))
             Text(agent.downloadNote, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -1387,6 +1733,16 @@ private fun AgentSwitchSheet(
     onSelect: (AgentKind) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // Resolve text before entering ModalBottomSheet. Dialog windows can expose
+    // the activity's base resources instead of our dynamically localized context.
+    val localizedContext = LocalContext.current
+    val sheetTitle = localizedContext.getString(R.string.agent_choose_title)
+    val sheetDescription = localizedContext.getString(R.string.agent_choose_desc)
+    val recommendedLabel = localizedContext.getString(R.string.agent_recommended)
+    val agentLabels = AgentKind.entries.associateWith { agent ->
+        localizedContext.getString(agent.titleRes()) to
+            localizedContext.getString(agent.subtitleRes())
+    }
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -1394,13 +1750,13 @@ private fun AgentSwitchSheet(
                 .padding(horizontal = 20.dp, vertical = 8.dp),
         ) {
             Text(
-                "Choose coding agent",
+                sheetTitle,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                "Switch if the current service is unavailable. Your existing login and credentials stay saved.",
+                sheetDescription,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
             )
@@ -1413,8 +1769,12 @@ private fun AgentSwitchSheet(
             ) {
                 Column {
                     AgentKind.entries.forEachIndexed { index, agent ->
+                        val labels = agentLabels.getValue(agent)
                         AgentChoiceRow(
                             agent = agent,
+                            title = labels.first,
+                            subtitle = labels.second,
+                            recommendedLabel = recommendedLabel,
                             selected = agent == selected,
                             onClick = { onSelect(agent) },
                         )
@@ -1466,6 +1826,61 @@ private fun SpecRow(
 }
 
 @Composable
+private fun localizeRuntimeMessage(message: String): String {
+    val trimmed = message.trim().removePrefix("• ").removePrefix("- ").removePrefix("$ ").trim()
+    return when {
+        trimmed.startsWith("Downloading ") && trimmed.endsWith(" bundle") -> {
+            val name = trimmed.removePrefix("Downloading ").removeSuffix(" bundle")
+            stringResource(R.string.runtime_msg_downloading_bundle, name)
+        }
+        trimmed.startsWith("Loading ") && trimmed.endsWith(" bundle") -> {
+            val name = trimmed.removePrefix("Loading ").removeSuffix(" bundle")
+            stringResource(R.string.runtime_msg_loading_bundle, name)
+        }
+        trimmed.equals("Preparing the private development runtime", ignoreCase = true) ||
+            trimmed.contains("Preparing the private development runtime", ignoreCase = true) -> {
+            stringResource(R.string.runtime_msg_preparing_runtime)
+        }
+        trimmed.startsWith("Verifying and unpacking the ") -> {
+            val name = trimmed.removePrefix("Verifying and unpacking the ").removeSuffix(" runtime")
+            stringResource(R.string.runtime_msg_verifying_unpacking, name)
+        }
+        trimmed.endsWith(" tools installed") -> {
+            val name = trimmed.removeSuffix(" tools installed")
+            stringResource(R.string.runtime_msg_tools_installed, name)
+        }
+        trimmed.equals("Checking private runtime files", ignoreCase = true) -> {
+            stringResource(R.string.runtime_msg_checking_files)
+        }
+        trimmed.equals("Preparing the Android runtime bridge", ignoreCase = true) -> {
+            stringResource(R.string.runtime_msg_preparing_bridge)
+        }
+        trimmed.equals("Private runtime is ready", ignoreCase = true) -> {
+            stringResource(R.string.runtime_msg_runtime_ready)
+        }
+        // Default RuntimeSetupSnapshot message, created before any localized progress arrives.
+        trimmed.equals("Preparing your private coding workspace", ignoreCase = true) -> {
+            stringResource(R.string.rt_setup_preparing_workspace)
+        }
+        trimmed.equals("Setup complete", ignoreCase = true) -> {
+            stringResource(R.string.runtime_msg_setup_complete)
+        }
+        trimmed.contains("Resuming Mobile Harness setup", ignoreCase = true) -> {
+            stringResource(R.string.runtime_msg_resuming_setup)
+        }
+        trimmed.startsWith("Downloading ") && !trimmed.startsWith("Downloading: ") -> {
+            val rest = trimmed.removePrefix("Downloading ")
+            stringResource(R.string.runtime_msg_downloading_generic, rest)
+        }
+        trimmed.startsWith("Installing ") -> {
+            val rest = trimmed.removePrefix("Installing ")
+            stringResource(R.string.runtime_msg_installing_generic, rest)
+        }
+        else -> message
+    }
+}
+
+@Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun RuntimeInstallationScreen(
     state: AppUiState,
@@ -1486,14 +1901,14 @@ private fun RuntimeInstallationScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         BrandMark(compact = true)
                         Spacer(Modifier.width(9.dp))
-                        Text("Set up Mobile Harness", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.setup_mobile_harness), fontWeight = FontWeight.Bold)
                     }
                 },
                 actions = {
                     IconButton(onClick = onToggleTheme) {
                         Icon(
                             if (themeMode == AppThemeMode.DARK) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = "Toggle theme",
+                            contentDescription = stringResource(R.string.theme_toggle),
                         )
                     }
                 },
@@ -1509,7 +1924,7 @@ private fun RuntimeInstallationScreen(
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "STEP 1 OF 3",
+                    stringResource(R.string.bg_step_indicator, 1, 3),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = PocketOrange,
@@ -1526,20 +1941,20 @@ private fun RuntimeInstallationScreen(
                     ) {
                         Icon(Icons.Default.Shield, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
                         Spacer(Modifier.width(5.dp))
-                        Text("Local setup", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.setup_local_badge), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
             Spacer(Modifier.height(10.dp))
             Text(
-                "Build your workspace",
+                stringResource(R.string.setup_build_workspace),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(Modifier.height(4.dp))
             Box(Modifier.fillMaxWidth().height(42.dp), contentAlignment = Alignment.CenterStart) {
                 Text(
-                    state.startupMessage,
+                    localizeRuntimeMessage(state.startupMessage),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
@@ -1556,7 +1971,7 @@ private fun RuntimeInstallationScreen(
             ) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 15.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Installation progress", color = MaterialTheme.colorScheme.onSurface, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.setup_installation_progress), color = MaterialTheme.colorScheme.onSurface, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.weight(1f))
                         Text("${(state.startupProgress * 100).toInt()}%", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
@@ -1570,7 +1985,7 @@ private fun RuntimeInstallationScreen(
                     Spacer(Modifier.height(10.dp))
                     Row(Modifier.fillMaxWidth().height(18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            "Estimated ${setupTimeEstimate(state.selectedDevStacks)}",
+                            stringResource(R.string.setup_estimated_time, setupTimeEstimate(state.selectedDevStacks)),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 11.5.sp,
                         )
@@ -1591,7 +2006,7 @@ private fun RuntimeInstallationScreen(
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "You can leave Mobile Harness in the background and follow setup from the notification.",
+                stringResource(R.string.setup_background_note),
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
@@ -1616,13 +2031,11 @@ private fun StartupLoadingScreen(
         view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
     }
-    val messages = remember {
-        listOf(
-            "Setting up your workspace",
-            "Preparing your coding tools",
-            "Almost ready",
-        )
-    }
+    val messages = listOf(
+        stringResource(R.string.startup_msg_setting_up),
+        stringResource(R.string.startup_msg_preparing_tools),
+        stringResource(R.string.startup_msg_almost_ready),
+    )
     var messageIndex by remember(state.startupStage) { mutableIntStateOf(0) }
     LaunchedEffect(messages) {
         while (true) {
@@ -1690,7 +2103,7 @@ private fun WorkspaceLaunchExperience(state: AppUiState) {
     val agentReady = state.startupMessage.contains("ready", ignoreCase = true) || state.startupProgress >= 0.75f
 
     Text(
-        "PRIVATE MOBILE WORKSPACE",
+        stringResource(R.string.workspace_launch_badge),
         color = MaterialTheme.colorScheme.primary,
         fontSize = 10.sp,
         fontWeight = FontWeight.Bold,
@@ -1698,13 +2111,13 @@ private fun WorkspaceLaunchExperience(state: AppUiState) {
     )
     Spacer(Modifier.height(10.dp))
     Text(
-        "Getting everything ready",
+        stringResource(R.string.workspace_launch_title),
         style = MaterialTheme.typography.headlineMedium,
         fontWeight = FontWeight.Bold,
     )
     Spacer(Modifier.height(7.dp))
     Text(
-        "Restoring your projects and reconnecting your local coding agent.",
+        stringResource(R.string.workspace_launch_desc),
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 13.sp,
         lineHeight = 19.sp,
@@ -1737,14 +2150,14 @@ private fun WorkspaceLaunchExperience(state: AppUiState) {
                 Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
-                        state.agentKind.title,
+                        state.agentKind.localizedTitle(),
                         color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        agentVersion?.let { "Verified CLI · v$it" } ?: "Connecting local agent",
+                        agentVersion?.let { stringResource(R.string.ws_launch_verified_cli, it) } ?: stringResource(R.string.ws_launch_connecting_agent),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.5.sp,
                     )
@@ -1755,7 +2168,7 @@ private fun WorkspaceLaunchExperience(state: AppUiState) {
                     border = BorderStroke(1.dp, PocketGreen.copy(alpha = 0.3f)),
                 ) {
                     Text(
-                        if (agentReady) "READY" else "STARTING",
+                        if (agentReady) stringResource(R.string.ws_launch_badge_ready) else stringResource(R.string.ws_launch_badge_starting),
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                         color = PocketGreen,
                         fontSize = 9.sp,
@@ -1772,11 +2185,11 @@ private fun WorkspaceLaunchExperience(state: AppUiState) {
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
             Spacer(Modifier.height(18.dp))
-            LaunchStatusRow(Icons.Default.Shield, "Private Linux environment", "Verified", complete = true)
+            LaunchStatusRow(Icons.Default.Shield, stringResource(R.string.ws_launch_private_linux), stringResource(R.string.agent_status_verified), complete = true)
             Spacer(Modifier.height(13.dp))
-            LaunchStatusRow(Icons.Default.Terminal, state.agentKind.title, if (agentReady) "Ready" else "Connecting", complete = agentReady)
+            LaunchStatusRow(Icons.Default.Terminal, state.agentKind.localizedTitle(), if (agentReady) stringResource(R.string.runtime_setup_status_ready) else stringResource(R.string.ws_launch_connecting), complete = agentReady)
             Spacer(Modifier.height(13.dp))
-            LaunchStatusRow(Icons.Default.Folder, "Project workspace", "Restoring", complete = false)
+            LaunchStatusRow(Icons.Default.Folder, stringResource(R.string.ws_launch_project_workspace), stringResource(R.string.ws_launch_restoring), complete = false)
         }
     }
 
@@ -1805,7 +2218,7 @@ private fun WorkspaceLaunchExperience(state: AppUiState) {
     }
     Spacer(Modifier.height(12.dp))
     Text(
-        "Runs locally on this device · Your project files stay private",
+        stringResource(R.string.workspace_launch_footer),
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
         fontSize = 10.5.sp,
@@ -1880,7 +2293,7 @@ private fun SetupLogPanel(logs: List<String>) {
                 )
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    text = if (expanded) "Live setup terminal" else logs.lastOrNull().orEmpty(),
+                    text = if (expanded) stringResource(R.string.setup_live_terminal) else localizeRuntimeMessage(logs.lastOrNull().orEmpty()),
                     modifier = Modifier.weight(1f),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
@@ -1890,7 +2303,7 @@ private fun SetupLogPanel(logs: List<String>) {
                 )
                 Icon(
                     if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = if (expanded) "Collapse setup details" else "Expand setup details",
+                    contentDescription = if (expanded) stringResource(R.string.ws_setup_collapse_details) else stringResource(R.string.ws_setup_expand_details),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -1909,7 +2322,7 @@ private fun SetupLogPanel(logs: List<String>) {
                 ) {
                     logs.forEach { line ->
                         Text(
-                            text = line,
+                            text = localizeRuntimeMessage(line),
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             lineHeight = 16.sp,
@@ -1930,7 +2343,7 @@ private fun SetupLogPanel(logs: List<String>) {
                             scope.launch { scrollState.animateScrollTo(scrollState.maxValue) }
                         },
                         modifier = Modifier.align(Alignment.End),
-                    ) { Text("Jump to latest") }
+                    ) { Text(stringResource(R.string.ws_jump_to_latest)) }
                 }
             }
         }
@@ -1964,7 +2377,7 @@ private fun StartupErrorScreen(
                     IconButton(onClick = onToggleTheme) {
                         Icon(
                             if (themeMode == AppThemeMode.DARK) Icons.Default.LightMode else Icons.Default.DarkMode,
-                            contentDescription = "Toggle theme",
+                            contentDescription = stringResource(R.string.theme_toggle),
                         )
                     }
                 },
@@ -1980,14 +2393,14 @@ private fun StartupErrorScreen(
             Icon(Icons.Default.Warning, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.error)
             Spacer(Modifier.height(20.dp))
             Text(
-                if (isOffline) "You're offline" else "Mobile Harness couldn't finish starting",
+                if (isOffline) stringResource(R.string.ws_error_offline) else stringResource(R.string.ws_error_start_failed),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(10.dp))
             Text(
-                message ?: "Please try again.",
+                message ?: stringResource(R.string.ws_error_try_again_msg),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
@@ -1996,13 +2409,13 @@ private fun StartupErrorScreen(
                 OutlinedButton(
                     onClick = {
                         clipboard.setText(AnnotatedString(logs.joinToString("\n")))
-                        Toast.makeText(context, "Setup log copied", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, context.getString(R.string.ws_setup_log_copied), Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Copy setup logs")
+                    Text(stringResource(R.string.ws_copy_setup_logs))
                 }
             }
             Spacer(Modifier.height(24.dp))
@@ -2018,14 +2431,14 @@ private fun StartupErrorScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Text("Open internet settings")
+                    Text(stringResource(R.string.ws_open_internet_settings))
                 }
                 Spacer(Modifier.height(10.dp))
                 OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
-                    Text("Try again")
+                    Text(stringResource(R.string.ws_try_again))
                 }
             } else {
-                Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("Try again") }
+                Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ws_try_again)) }
             }
         }
     }
@@ -2056,8 +2469,8 @@ private fun RootScreenHost(
                     NavigationBarItem(
                         selected = screen == tab,
                         onClick = { screen = tab },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label, fontSize = 11.sp) },
+                        icon = { Icon(tab.icon, contentDescription = stringResource(tab.labelRes)) },
+                        label = { Text(stringResource(tab.labelRes), fontSize = 11.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -2072,7 +2485,7 @@ private fun RootScreenHost(
                 ExtendedFloatingActionButton(
                     onClick = { showQuickTerminal = true },
                     icon = { Icon(Icons.Default.Terminal, contentDescription = null) },
-                    text = { Text("Terminal", fontWeight = FontWeight.SemiBold) },
+                    text = { Text(stringResource(R.string.projects_terminal), fontWeight = FontWeight.SemiBold) },
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                 )
@@ -2086,6 +2499,7 @@ private fun RootScreenHost(
                     listState = projectsListState,
                     onOpen = viewModel::openProject,
                     onCreate = viewModel::createProject,
+                    onCreateAndroid = viewModel::createAndroidProject,
                     onCreateQuickProject = viewModel::createQuickProject,
                     onImportZip = viewModel::importZipProject,
                     onCloneGit = viewModel::clonePublicGitRepository,
@@ -2133,6 +2547,7 @@ private fun RootScreenHost(
                     onDiscoverModels = viewModel::discoverModels,
                     onValidateProvider = viewModel::validateProvider,
                     onSetThemeMode = viewModel::setThemeMode,
+                    onSetLanguage = viewModel::setLanguage,
                     onPing = viewModel::pingApi,
                     onClearTerminal = viewModel::clearTerminal,
                     getSavedApiKey = viewModel::getSavedApiKey,
@@ -2154,6 +2569,9 @@ private fun RootScreenHost(
                     initialDebugUpdateManifestUrl = viewModel.debugUpdateManifestUrl(),
                     onSetDebugUpdateManifestUrl = viewModel::setDebugUpdateManifestUrl,
                     onClearDebugUpdateManifestUrl = viewModel::clearDebugUpdateManifestUrl,
+                    onRefreshDiagnostics = viewModel::refreshDeveloperDiagnostics,
+                    onStopInactiveProcesses = viewModel::stopInactiveDeveloperProcesses,
+                    onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
                 )
             }
         }
@@ -2186,7 +2604,7 @@ private fun QuickTerminalSheet(
     onDismiss: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    var sheetFraction by rememberSaveable { mutableFloatStateOf(0.45f) }
+    var sheetFraction by rememberSaveable { mutableFloatStateOf(0.60f) }
     BackHandler(onBack = onDismiss)
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -2225,11 +2643,14 @@ private fun QuickTerminalSheet(
                             startDragImmediately = false,
                         ),
                     shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = 8.dp,
+                    // Plain theme surface without tonal elevation: the app theme doesn't define
+                    // surfaceContainer* (falls back to M3 lavender) and tonal elevation tints
+                    // every nested Surface orange.
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
                     shadowElevation = 28.dp,
                 ) {
-                    Column(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().navigationBarsPadding()) {
                         Box(
                             Modifier
                                 .fillMaxWidth()
@@ -2263,6 +2684,8 @@ private fun ProviderSetupScreen(
     agentKind: AgentKind = AgentKind.CLAUDE_CODE,
     initialStep: Int = if (onboarding) 0 else 1,
     onBack: (() -> Unit)? = null,
+    currentLanguageCode: String = "system",
+    onSetLanguage: ((String) -> Unit)? = null,
     onSave: (ProviderProfile, String) -> Unit,
     onDiscover: suspend (ProviderProfile, String) -> ModelDiscoveryResult,
     onValidate: suspend (ProviderProfile, String, List<DiscoveredModel>) -> ConnectionValidation,
@@ -2292,7 +2715,7 @@ private fun ProviderSetupScreen(
 
     val handleBack: (() -> Unit)? = when {
         step > 1 -> { { step = 1 } }
-        !onboarding && onBack != null -> onBack
+        onBack != null -> onBack
         else -> null
     }
 
@@ -2303,20 +2726,26 @@ private fun ProviderSetupScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (onboarding) "Set up Mobile Harness" else "AI Provider & Settings") },
+                title = { Text(stringResource(if (onboarding) R.string.setup_mobile_harness else R.string.provider_setup_settings_title)) },
                 navigationIcon = {
                     if (handleBack != null) {
                         IconButton(onClick = handleBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.action_back))
                         }
                     }
                 },
                 actions = {
+                    if (onSetLanguage != null) {
+                        LanguagePickerAction(
+                            currentLanguageCode = currentLanguageCode,
+                            onSelectLanguage = onSetLanguage,
+                        )
+                    }
                     if (onToggleTheme != null) {
                         IconButton(onClick = onToggleTheme) {
                             Icon(
                                 if (themeMode == AppThemeMode.DARK) Icons.Default.LightMode else Icons.Default.DarkMode,
-                                contentDescription = "Toggle theme",
+                                contentDescription = stringResource(R.string.theme_toggle),
                             )
                         }
                     }
@@ -2387,7 +2816,7 @@ private fun DshApiProtocolPicker(selected: String, onSelected: (String) -> Unit)
     val options = listOf("anthropic-messages", "openai-completions", "openai-responses")
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(
-            "Gateway protocol",
+            stringResource(R.string.provider_gateway_protocol),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 12.sp,
         )
@@ -2413,7 +2842,7 @@ private fun DshApiProtocolPicker(selected: String, onSelected: (String) -> Unit)
             }
         }
         Text(
-            "Pick the protocol your gateway speaks; DeepSeek Harness routes it directly.",
+            stringResource(R.string.provider_gateway_protocol_help),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 11.sp,
         )
@@ -2442,20 +2871,20 @@ private fun DeviceCheckStep(context: Context, onContinue: () -> Unit) {
     val compatible = arm64
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
         BrandMark()
-        Text("Your phone is the workspace", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        Text("Mobile Harness checks compatibility before downloading the private Linux runtime.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        CheckRow(Icons.Default.Memory, "Memory", "$totalRamLabel GB usable · ${if (totalRamGb >= 7.5) "Full mode" else "Lite mode"}", true)
-        CheckRow(Icons.Default.Code, "Processor", Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown", arm64)
-        CheckRow(Icons.Default.Storage, "Android", "Android ${Build.VERSION.RELEASE}", true)
+        Text(stringResource(R.string.provider_device_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.provider_device_desc), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        CheckRow(Icons.Default.Memory, stringResource(R.string.provider_memory), stringResource(R.string.provider_memory_mode, totalRamLabel, stringResource(if (totalRamGb >= 7.5) R.string.provider_full_mode else R.string.provider_lite_mode)), true)
+        CheckRow(Icons.Default.Code, stringResource(R.string.runtime_setup_processor), Build.SUPPORTED_ABIS.firstOrNull() ?: stringResource(R.string.provider_unknown), arm64)
+        CheckRow(Icons.Default.Storage, "Android", stringResource(R.string.provider_android_version, Build.VERSION.RELEASE), true)
         Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(16.dp)) {
             Text(
-                "Only open projects you trust. The local Linux environment is a compatibility layer, not a hardened security sandbox.",
+                stringResource(R.string.provider_security_warning),
                 modifier = Modifier.padding(16.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
         Button(onClick = onContinue, enabled = compatible, modifier = Modifier.fillMaxWidth().height(52.dp)) {
-            Text(if (compatible) "Continue" else "This device is not supported")
+            Text(stringResource(if (compatible) R.string.provider_continue else R.string.runtime_setup_device_not_supported))
         }
     }
 }
@@ -2487,7 +2916,7 @@ private fun ProviderChoiceStep(
     Column(Modifier.fillMaxHeight()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "STEP 2 OF 3",
+                stringResource(R.string.provider_step_of, 2, 3),
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 color = PocketOrange,
@@ -2504,15 +2933,15 @@ private fun ProviderChoiceStep(
                 ) {
                     Icon(Icons.Default.Shield, null, tint = PocketGreen, modifier = Modifier.size(12.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("Secure setup", color = PocketGreen, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.provider_secure_setup), color = PocketGreen, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
         Spacer(Modifier.height(10.dp))
-        Text("Connect your AI", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.provider_connect_ai), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "Choose how Mobile Harness should access your coding model.",
+            stringResource(R.string.provider_connect_ai_desc),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 13.sp,
         )
@@ -2548,7 +2977,7 @@ private fun ProviderChoiceStep(
             Icon(Icons.Default.Key, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(7.dp))
             Text(
-                "API keys are encrypted in Android secure storage.",
+                stringResource(R.string.provider_keys_secure),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
             )
@@ -2562,7 +2991,7 @@ private fun ProviderChoiceStep(
                 contentColor = MaterialTheme.colorScheme.onPrimary,
             ),
         ) {
-            Text("Continue", fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.provider_continue), fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(8.dp))
             Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(18.dp))
         }
@@ -2570,9 +2999,32 @@ private fun ProviderChoiceStep(
             onClick = onChangeAgent,
             modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp),
         ) {
-            Text("Use another coding agent", fontSize = 12.sp)
+            Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
         }
     }
+}
+
+@StringRes
+private fun providerTitleResource(provider: ProviderKind): Int = when (provider) {
+    ProviderKind.CLAUDE -> R.string.provider_title_claude
+    ProviderKind.ANTHROPIC -> R.string.provider_title_anthropic
+    ProviderKind.LLM_ROUTER -> R.string.provider_title_openrouter
+    ProviderKind.DEEPSEEK -> R.string.provider_title_deepseek
+    ProviderKind.KIMI -> R.string.provider_title_kimi
+    ProviderKind.OPENCODE_ZEN -> R.string.provider_title_opencode
+    ProviderKind.NVIDIA_NIM -> R.string.provider_title_nvidia
+    ProviderKind.CUSTOM -> R.string.provider_title_custom
+}
+
+@StringRes
+private fun providerSubtitleResource(provider: ProviderKind): Int = when (provider) {
+    ProviderKind.CLAUDE -> R.string.provider_subtitle_claude
+    ProviderKind.ANTHROPIC -> R.string.provider_subtitle_anthropic
+    ProviderKind.LLM_ROUTER -> R.string.provider_subtitle_openrouter
+    ProviderKind.DEEPSEEK -> R.string.provider_subtitle_deepseek
+    ProviderKind.KIMI, ProviderKind.CUSTOM -> R.string.provider_subtitle_anthropic_compatible
+    ProviderKind.OPENCODE_ZEN -> R.string.provider_subtitle_opencode
+    ProviderKind.NVIDIA_NIM -> R.string.provider_subtitle_nvidia
 }
 
 @Composable
@@ -2623,7 +3075,7 @@ private fun ProviderChoiceRow(
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    provider.title,
+                    stringResource(providerTitleResource(provider)),
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurface,
@@ -2635,7 +3087,7 @@ private fun ProviderChoiceRow(
                         shape = RoundedCornerShape(5.dp),
                     ) {
                         Text(
-                            "Beta",
+                            stringResource(R.string.provider_beta),
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = 8.sp,
@@ -2646,7 +3098,7 @@ private fun ProviderChoiceRow(
             }
             Spacer(Modifier.height(1.dp))
             Text(
-                provider.subtitle,
+                stringResource(providerSubtitleResource(provider)),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 10.5.sp,
                 maxLines = 1,
@@ -2688,6 +3140,7 @@ private fun ProviderCredentialsStep(
     onSave: () -> Unit,
     onChangeAgent: () -> Unit,
 ) {
+    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var models by remember(baseUrl) { mutableStateOf(emptyList<DiscoveredModel>()) }
     var isDiscovering by remember { mutableStateOf(false) }
@@ -2698,7 +3151,8 @@ private fun ProviderCredentialsStep(
     var showModels by rememberSaveable { mutableStateOf(false) }
     var modelSearch by rememberSaveable { mutableStateOf("") }
     val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val hasKey = apiKey.isNotBlank() || hasStoredSecret
+    // Custom API servers that are self-hosted (llama.cpp, LM Studio…) often need no key.
+    val hasKey = apiKey.isNotBlank() || hasStoredSecret || provider == ProviderKind.CUSTOM
     val filteredModels = remember(models, modelSearch) {
         val query = modelSearch.trim()
         if (query.isEmpty()) models else models.filter {
@@ -2726,7 +3180,7 @@ private fun ProviderCredentialsStep(
                 is ModelDiscoveryResult.Success -> {
                     models = result.models
                     statusOk = true
-                    status = "Found ${result.models.size} available model${if (result.models.size == 1) "" else "s"}."
+                    status = context.getString(R.string.provider_models_found, result.models.size)
                     if (model.isBlank() && result.models.isNotEmpty()) onModel(result.models.first().id)
                     if (openWhenReady && result.models.isNotEmpty()) showModels = true
                 }
@@ -2751,9 +3205,9 @@ private fun ProviderCredentialsStep(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Available models", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.provider_available_models), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         Text(
-                            "${filteredModels.size} of ${models.size} models",
+                            stringResource(R.string.provider_models_count, filteredModels.size, models.size),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                         )
@@ -2763,7 +3217,7 @@ private fun ProviderCredentialsStep(
                         enabled = !isDiscovering,
                     ) {
                         if (isDiscovering) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Icon(Icons.Default.Refresh, "Refresh models")
+                        else Icon(Icons.Default.Refresh, stringResource(R.string.provider_refresh_models))
                     }
                 }
                 Spacer(Modifier.height(14.dp))
@@ -2771,14 +3225,14 @@ private fun ProviderCredentialsStep(
                     value = modelSearch,
                     onValueChange = { modelSearch = it },
                     leadingIcon = { Icon(Icons.Default.Search, null) },
-                    placeholder = { Text("Search model name or ID") },
+                    placeholder = { Text(stringResource(R.string.provider_search_models)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(12.dp))
                 if (filteredModels.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No matching models", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.provider_no_matching_models), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     LazyColumn(
@@ -2801,7 +3255,7 @@ private fun ProviderCredentialsStep(
                                 Column(Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(option.displayName, modifier = Modifier.weight(1f, fill = false), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        if (option.isFree) Text("  FREE", color = Color(0xFF58C99C), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        if (option.isFree) Text(stringResource(R.string.provider_free), color = Color(0xFF58C99C), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                     if (option.displayName != option.id) {
                                         Text(option.id, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -2833,24 +3287,24 @@ private fun ProviderCredentialsStep(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("STEP 3 OF 3", color = PocketOrange, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text(stringResource(R.string.provider_step_of, 3, 3), color = PocketOrange, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.weight(1f))
                 Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = CircleShape) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Key, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(6.dp))
-                        Text("Encrypted locally", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.provider_encrypted_locally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Text(provider.title, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(stringResource(providerTitleResource(provider)), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(5.dp))
             Text(
                 when {
-                    agentKind == AgentKind.DEEPSEEK_HARNESS -> "DeepSeek Harness will connect through this API endpoint."
-                    provider.protocol.name.startsWith("OPENAI") -> "Mobile Harness will translate Claude Code requests for this provider."
-                    else -> "Claude Code will connect through this API endpoint."
+                    agentKind == AgentKind.DEEPSEEK_HARNESS -> stringResource(R.string.provider_endpoint_deepseek)
+                    provider.protocol.name.startsWith("OPENAI") -> stringResource(R.string.provider_endpoint_translate)
+                    else -> stringResource(R.string.provider_endpoint_claude)
                 },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2865,9 +3319,9 @@ private fun ProviderCredentialsStep(
                     OutlinedTextField(
                         baseUrl,
                         { onBaseUrl(it); status = null; statusDetails = null; models = emptyList() },
-                        label = { Text("Base URL") },
+                        label = { Text(stringResource(R.string.provider_base_url)) },
                         supportingText = {
-                            if (provider.fixedBaseUrl) Text("Fixed by ${provider.title}")
+                            if (provider.fixedBaseUrl) Text(stringResource(R.string.provider_fixed_by, stringResource(providerTitleResource(provider))))
                         },
                         readOnly = provider.fixedBaseUrl,
                         enabled = !provider.fixedBaseUrl,
@@ -2880,10 +3334,10 @@ private fun ProviderCredentialsStep(
                     OutlinedTextField(
                         apiKey,
                         { onApiKey(it); status = null; statusDetails = null },
-                        label = { Text("API key") },
-                        placeholder = { Text(if (hasStoredSecret) "Saved securely — leave blank to keep it" else "Enter your API key") },
+                        label = { Text(stringResource(R.string.provider_api_key)) },
+                        placeholder = { Text(stringResource(if (hasStoredSecret) R.string.provider_saved_key_placeholder else R.string.provider_enter_key)) },
                         supportingText = {
-                            if (hasStoredSecret && apiKey.isBlank()) Text("A saved key is ready to use")
+                            if (hasStoredSecret && apiKey.isBlank()) Text(stringResource(R.string.provider_saved_key_ready))
                         },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
@@ -2893,8 +3347,8 @@ private fun ProviderCredentialsStep(
                     OutlinedTextField(
                         model,
                         { onModel(it); status = null; statusDetails = null },
-                        label = { Text("Model name") },
-                        supportingText = { Text("Select an available model or enter an exact model ID.") },
+                        label = { Text(stringResource(R.string.provider_model_name)) },
+                        supportingText = { Text(stringResource(R.string.provider_model_help)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -2915,7 +3369,7 @@ private fun ProviderCredentialsStep(
                 }
                 Icon(if (models.isEmpty()) Icons.Default.Search else Icons.Default.KeyboardArrowDown, null, Modifier.size(19.dp))
                 Spacer(Modifier.width(8.dp))
-                Text(if (models.isEmpty()) "Find available models" else "Available models (${models.size})")
+                Text(if (models.isEmpty()) stringResource(R.string.provider_find_models) else stringResource(R.string.provider_available_models_count, models.size))
             }
         }
         if (status != null) {
@@ -2941,7 +3395,7 @@ private fun ProviderCredentialsStep(
                     onClick = {
                         scope.launch {
                             isValidating = true
-                            status = "Checking API key, model, and Claude Code settings…"
+                            status = context.getString(R.string.provider_checking_settings)
                             statusDetails = null
                             statusOk = true
                             when (val result = onValidate(models)) {
@@ -2966,7 +3420,7 @@ private fun ProviderCredentialsStep(
                         CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(7.dp))
                     }
-                    Text(if (isValidating) "Checking" else "Continue")
+                    Text(stringResource(if (isValidating) R.string.provider_checking else R.string.provider_continue))
             }
         }
         item {
@@ -2974,7 +3428,7 @@ private fun ProviderCredentialsStep(
                 onClick = onChangeAgent,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Use another coding agent", fontSize = 12.sp)
+                Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
             }
         }
     }
@@ -2998,21 +3452,21 @@ private fun ClaudeSubscriptionCredentialsStep(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("STEP 3 OF 3", color = PocketOrange, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text(stringResource(R.string.provider_step_of, 3, 3), color = PocketOrange, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                 Spacer(Modifier.weight(1f))
                 Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = CircleShape) {
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Key, null, Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.width(6.dp))
-                        Text("Encrypted locally", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.provider_encrypted_locally), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
             Spacer(Modifier.height(16.dp))
-            Text("Claude subscription", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.provider_title_claude), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
             Text(
-                "Connect a Claude Pro, Max, Team, or Enterprise subscription to Claude Code.",
+                stringResource(R.string.provider_claude_connect_desc),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -3023,7 +3477,7 @@ private fun ClaudeSubscriptionCredentialsStep(
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("1. On a computer where Claude Code is installed, run:", fontSize = 13.sp)
+                    Text(stringResource(R.string.provider_claude_step_one), fontSize = 13.sp)
                     Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(10.dp)) {
                         Text(
                             "claude setup-token",
@@ -3032,19 +3486,19 @@ private fun ClaudeSubscriptionCredentialsStep(
                             color = PocketOrange,
                         )
                     }
-                    Text("2. Sign in to Claude and paste the generated token here.", fontSize = 13.sp)
+                    Text(stringResource(R.string.provider_claude_step_two), fontSize = 13.sp)
                     OutlinedTextField(
                         value = token,
                         onValueChange = onToken,
-                        label = { Text("Claude setup token") },
-                        placeholder = { Text(if (hasStoredToken) "Saved securely — leave blank to keep it" else "Paste token") },
-                        supportingText = if (hasStoredToken && token.isBlank()) ({ Text("A saved subscription token is ready to use") }) else null,
+                        label = { Text(stringResource(R.string.provider_claude_token)) },
+                        placeholder = { Text(stringResource(if (hasStoredToken) R.string.provider_saved_key_placeholder else R.string.provider_paste_token)) },
+                        supportingText = if (hasStoredToken && token.isBlank()) ({ Text(stringResource(R.string.provider_saved_token_ready)) }) else null,
                         singleLine = true,
                         visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         trailingIcon = {
                             IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                                Icon(if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Toggle token visibility")
+                                Icon(if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, stringResource(R.string.provider_toggle_token_visibility))
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -3058,12 +3512,12 @@ private fun ClaudeSubscriptionCredentialsStep(
                 enabled = hasToken,
                 modifier = Modifier.fillMaxWidth().height(54.dp),
             ) {
-                Text("Save and continue")
+                Text(stringResource(R.string.provider_save_continue))
             }
         }
         item {
             TextButton(onClick = onChangeAgent, modifier = Modifier.fillMaxWidth()) {
-                Text("Use another coding agent", fontSize = 12.sp)
+                Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
             }
         }
     }
@@ -3076,6 +3530,7 @@ private fun ProjectsScreen(
     listState: LazyListState = rememberSaveable(saver = LazyListState.Saver) { LazyListState() },
     onOpen: (Project) -> Unit,
     onCreate: (String) -> Unit,
+    onCreateAndroid: (String, AndroidTemplate) -> Unit,
     onCreateQuickProject: () -> Unit,
     onImportZip: (Uri) -> Unit,
     onCloneGit: (String) -> Unit,
@@ -3099,6 +3554,7 @@ private fun ProjectsScreen(
     var gitUrl by rememberSaveable { mutableStateOf("") }
     var repositorySearch by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
+    var androidTemplate by rememberSaveable { mutableStateOf<AndroidTemplate?>(null) }
     val projects = state.projects
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -3126,8 +3582,8 @@ private fun ProjectsScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text("Build from your phone", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text("Chat, review changes, and preview your project.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.projects_hero_title), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.projects_hero_desc), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3147,7 +3603,7 @@ private fun ProjectsScreen(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "Quick project",
+                            text = stringResource(R.string.projects_quick_project),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
                             maxLines = 1,
@@ -3167,7 +3623,7 @@ private fun ProjectsScreen(
                         )
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "New project",
+                            text = stringResource(R.string.projects_new_project),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 13.sp,
                             maxLines = 1,
@@ -3192,16 +3648,16 @@ private fun ProjectsScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
-                                Text("Bring an existing project", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.projects_bring_existing), fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
                                 Text(
-                                    if (isImportExpanded) "Import files or clone complete Git history" else "ZIP file, Git repository, or GitHub",
+                                    stringResource(if (isImportExpanded) R.string.projects_import_expanded else R.string.projects_import_sources),
                                     fontSize = 10.5.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Icon(
                                 imageVector = if (isImportExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (isImportExpanded) "Collapse" else "Expand",
+                                contentDescription = if (isImportExpanded) stringResource(R.string.ws_collapse) else stringResource(R.string.ws_expand),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp),
                             )
@@ -3216,7 +3672,7 @@ private fun ProjectsScreen(
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                                     ImportSourceButton(
                                         icon = Icons.Default.Download,
-                                        title = if (state.projectImporting) "Importing…" else "ZIP file",
+                                        title = stringResource(if (state.projectImporting) R.string.projects_importing else R.string.projects_zip_file),
                                         enabled = !state.projectImporting && !state.gitCloneRunning,
                                         modifier = Modifier.weight(1f),
                                         onClick = { importZipLauncher.launch("*/*") },
@@ -3224,7 +3680,7 @@ private fun ProjectsScreen(
                                     )
                                     ImportSourceButton(
                                         icon = Icons.Default.Code,
-                                        title = if (state.gitCloneRunning) "Cloning…" else "Git URL",
+                                        title = stringResource(if (state.gitCloneRunning) R.string.projects_cloning else R.string.projects_git_url),
                                         enabled = !state.projectImporting && !state.gitCloneRunning,
                                         modifier = Modifier.weight(1f),
                                         onClick = { showGitDialog = true },
@@ -3245,12 +3701,12 @@ private fun ProjectsScreen(
                                         Spacer(Modifier.width(10.dp))
                                         Column(Modifier.weight(1f)) {
                                             Text(
-                                                state.githubLogin?.let { "GitHub · @$it" } ?: "Connect GitHub",
+                                                state.githubLogin?.let { stringResource(R.string.projects_github_account, it) } ?: stringResource(R.string.projects_connect_github),
                                                 fontSize = 12.5.sp,
                                                 fontWeight = FontWeight.SemiBold,
                                             )
                                             Text(
-                                                if (state.githubLogin != null) "Browse public and private repositories" else "Sign in to access your repositories",
+                                                stringResource(if (state.githubLogin != null) R.string.projects_browse_repositories else R.string.projects_sign_in_repositories),
                                                 fontSize = 10.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             )
@@ -3281,14 +3737,14 @@ private fun ProjectsScreen(
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
                                 Text("Mobile Harness ${update.versionName}", fontWeight = FontWeight.Bold)
-                                Text("A new update is ready", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(stringResource(R.string.ws_update_ready), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            Text("Update", color = PocketOrange, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(stringResource(R.string.ws_update), color = PocketOrange, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                         }
                     }
                 }
             }
-            item { Text("Your projects", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            item { Text(stringResource(R.string.projects_your_projects), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
             if (projects.isEmpty()) {
                 item {
                     Card(
@@ -3321,13 +3777,13 @@ private fun ProjectsScreen(
                             }
                             Spacer(Modifier.height(4.dp))
                             Text(
-                                "No projects yet",
+                                stringResource(R.string.projects_empty_title),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
                             )
                             Text(
-                                "Create a named project or start instantly with a Quick Project.",
+                                stringResource(R.string.projects_empty_desc),
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
@@ -3342,6 +3798,7 @@ private fun ProjectsScreen(
                         project = project,
                         taskRunning = state.isRunning && state.activeProject?.id == project.id,
                         terminalRunning = state.projectTerminalRunning && state.activeProject?.id == project.id,
+                        buildRunning = state.androidBuildRunning && state.activeProject?.id == project.id,
                         onOpen = { onOpen(project) },
                         onRename = { onRenameProject(project.id, it) },
                         onDelete = { onDeleteProject(project.id) },
@@ -3352,13 +3809,49 @@ private fun ProjectsScreen(
     }
     if (showCreate) AlertDialog(
         onDismissRequest = { showCreate = false },
-        title = { Text("Create a starter project") },
+        title = { Text(stringResource(R.string.an_create_project)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(name, { name = it }, label = { Text("Project name") }, singleLine = true)
+                OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.ws_project_name)) }, singleLine = true)
+                Text(stringResource(R.string.project_type), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AssistChip(
+                        onClick = { androidTemplate = null },
+                        label = { Text(stringResource(R.string.project_type_general)) },
+                        leadingIcon = { if (androidTemplate == null) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
+                    )
+                    AssistChip(
+                        onClick = { androidTemplate = AndroidTemplate.COMPOSE },
+                        label = { Text(stringResource(R.string.project_type_compose)) },
+                        leadingIcon = { if (androidTemplate == AndroidTemplate.COMPOSE) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
+                    )
+                    AssistChip(
+                        onClick = { androidTemplate = AndroidTemplate.XML },
+                        label = { Text(stringResource(R.string.project_type_xml)) },
+                        leadingIcon = { if (androidTemplate == AndroidTemplate.XML) Icon(Icons.Default.Check, null, Modifier.size(16.dp)) },
+                    )
+                }
+                Text(
+                    stringResource(
+                        when (androidTemplate) {
+                            AndroidTemplate.COMPOSE -> R.string.project_type_compose_desc
+                            AndroidTemplate.XML -> R.string.project_type_xml_desc
+                            null -> R.string.project_type_general_desc
+                        },
+                    ),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (androidTemplate != null) {
+                    Text(
+                        stringResource(R.string.an_template_info, 28, 36),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (name.isNotBlank()) {
                     Text(
-                        "Terminal folder: /workspace/${projectSlug(name)}",
+                        stringResource(R.string.ws_terminal_folder, "/workspace/${projectSlug(name)}"),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -3366,20 +3859,30 @@ private fun ProjectsScreen(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onCreate(name); showCreate = false; name = "" }, enabled = name.isNotBlank()) { Text("Create") } },
-        dismissButton = { TextButton(onClick = { showCreate = false }) { Text("Cancel") } },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    androidTemplate?.let { onCreateAndroid(name, it) } ?: onCreate(name)
+                    showCreate = false
+                    name = ""
+                    androidTemplate = null
+                },
+                enabled = name.isNotBlank(),
+            ) { Text(stringResource(R.string.ws_create)) }
+        },
+        dismissButton = { TextButton(onClick = { showCreate = false }) { Text(stringResource(R.string.action_cancel)) } },
     )
     if (showGitDialog) AlertDialog(
         onDismissRequest = { if (!state.gitCloneRunning) showGitDialog = false },
         icon = { Icon(Icons.Default.Code, null, tint = PocketOrange) },
-        title = { Text("Clone Git repository") },
+        title = { Text(stringResource(R.string.ws_clone_git_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Paste a public HTTPS repository URL. Its complete Git history and current branch will be kept.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.5.sp)
+                Text(stringResource(R.string.ws_clone_git_desc), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.5.sp)
                 OutlinedTextField(
                     value = gitUrl,
                     onValueChange = { gitUrl = it },
-                    label = { Text("HTTPS Git URL") },
+                    label = { Text(stringResource(R.string.ws_https_git_url)) },
                     placeholder = { Text("https://github.com/owner/repository.git") },
                     singleLine = true,
                 )
@@ -3390,9 +3893,9 @@ private fun ProjectsScreen(
             Button(
                 enabled = gitUrl.isNotBlank() && !state.gitCloneRunning,
                 onClick = { onCloneGit(gitUrl); showGitDialog = false; gitUrl = "" },
-            ) { Text(if (state.gitCloneRunning) "Cloning…" else "Clone project") }
+            ) { Text(if (state.gitCloneRunning) stringResource(R.string.projects_cloning) else stringResource(R.string.ws_clone_project)) }
         },
-        dismissButton = { TextButton(onClick = { showGitDialog = false }, enabled = !state.gitCloneRunning) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = { showGitDialog = false }, enabled = !state.gitCloneRunning) { Text(stringResource(R.string.action_cancel)) } },
     )
     if (showGitHubDialog) {
         val clipboard = LocalClipboardManager.current
@@ -3402,24 +3905,24 @@ private fun ProjectsScreen(
         AlertDialog(
             onDismissRequest = { if (!state.gitCloneRunning) showGitHubDialog = false },
             icon = { Icon(Icons.Default.Code, null, tint = PocketOrange) },
-            title = { Text(state.githubLogin?.let { "GitHub · @$it" } ?: "Connect GitHub") },
+            title = { Text(state.githubLogin?.let { stringResource(R.string.projects_github_account, it) } ?: stringResource(R.string.projects_connect_github)) },
             text = {
                 when (state.githubAuthStatus) {
                     GitHubAuthStatus.DISCONNECTED, GitHubAuthStatus.ERROR -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            state.githubMessage ?: "Sign in with GitHub's official CLI to browse public and private repositories.",
+                            state.githubMessage ?: stringResource(R.string.ws_github_signin_desc),
                             color = if (state.githubAuthStatus == GitHubAuthStatus.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                         )
-                        Button(onClick = onStartGitHubLogin, modifier = Modifier.fillMaxWidth()) { Text("Sign in with GitHub") }
+                        Button(onClick = onStartGitHubLogin, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.ws_github_signin)) }
                     }
                     GitHubAuthStatus.STARTING -> Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                         CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
                         Spacer(Modifier.height(12.dp))
-                        Text(state.githubMessage ?: "Starting GitHub sign-in…")
+                        Text(state.githubMessage ?: stringResource(R.string.ws_github_starting))
                     }
                     GitHubAuthStatus.AWAITING_USER -> Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("Enter this one-time code in the GitHub page opened in your browser.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.ws_github_enter_code), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Surface(
                             modifier = Modifier.fillMaxWidth().clickable { state.githubUserCode?.let { clipboard.setText(AnnotatedString(it)) } },
                             shape = RoundedCornerShape(14.dp),
@@ -3435,27 +3938,27 @@ private fun ProjectsScreen(
                                 letterSpacing = 2.sp,
                             )
                         }
-                        Text("Tap the code to copy it. PocketDev will connect automatically after approval.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.ws_github_tap_code), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         OutlinedButton(
                             onClick = onGenerateNewGitHubCode,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Generate new code")
+                            Text(stringResource(R.string.ws_github_new_code))
                         }
                     }
                     GitHubAuthStatus.CONNECTED -> Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(state.githubMessage ?: "Select a repository", modifier = Modifier.weight(1f), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(state.githubMessage ?: stringResource(R.string.ws_github_select_repo), modifier = Modifier.weight(1f), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             IconButton(onClick = onRefreshGitHub, enabled = !state.githubRepositoriesLoading) {
-                                Icon(Icons.Default.Refresh, "Refresh repositories")
+                                Icon(Icons.Default.Refresh, stringResource(R.string.ws_github_refresh_repos))
                             }
                         }
                         OutlinedTextField(
                             value = repositorySearch,
                             onValueChange = { repositorySearch = it },
-                            placeholder = { Text("Search repositories") },
+                            placeholder = { Text(stringResource(R.string.ws_github_search_repos)) },
                             leadingIcon = { Icon(Icons.Default.Search, null) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
@@ -3476,7 +3979,7 @@ private fun ProjectsScreen(
                                         Spacer(Modifier.width(9.dp))
                                         Column(Modifier.weight(1f)) {
                                             Text(repository.fullName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text("${if (repository.private) "Private" else "Public"} · ${repository.defaultBranch}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            Text("${if (repository.private) stringResource(R.string.ws_repo_private) else stringResource(R.string.ws_repo_public)} · ${repository.defaultBranch}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
@@ -3487,14 +3990,14 @@ private fun ProjectsScreen(
             },
             confirmButton = {
                 if (state.githubAuthStatus == GitHubAuthStatus.CONNECTED) {
-                    TextButton(onClick = { showGitHubDialog = false }) { Text("Close") }
+                    TextButton(onClick = { showGitHubDialog = false }) { Text(stringResource(R.string.action_close)) }
                 }
             },
             dismissButton = {
                 if (state.githubAuthStatus == GitHubAuthStatus.CONNECTED) {
-                    TextButton(onClick = { onDisconnectGitHub(); showGitHubDialog = false }) { Text("Disconnect") }
+                    TextButton(onClick = { onDisconnectGitHub(); showGitHubDialog = false }) { Text(stringResource(R.string.ws_disconnect)) }
                 } else if (state.githubAuthStatus != GitHubAuthStatus.STARTING) {
-                    TextButton(onClick = { showGitHubDialog = false }) { Text("Cancel") }
+                    TextButton(onClick = { showGitHubDialog = false }) { Text(stringResource(R.string.action_cancel)) }
                 }
             },
         )
@@ -3510,17 +4013,17 @@ private fun ProjectsScreen(
         AlertDialog(
             onDismissRequest = { if (!installing) showUpdateDialog = false },
             icon = { Icon(Icons.Default.Download, null, tint = PocketOrange, modifier = Modifier.size(34.dp)) },
-            title = { Text("Update to ${update.versionName}", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.ws_update_to, update.versionName), fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(update.notes.ifBlank { "Get the latest improvements and fixes for Mobile Harness." })
-                    if (update.sizeBytes > 0) Text("Download size: ${formatMegabytes(update.sizeBytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                    Text(update.notes.ifBlank { stringResource(R.string.ws_update_default_notes) })
+                    if (update.sizeBytes > 0) Text(stringResource(R.string.ws_update_download_size, formatMegabytes(update.sizeBytes)), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
                     if (!canInstall) {
                         Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.65f)) {
                             Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
                                 Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text("Allow ‘Install unknown apps’ for Mobile Harness. Without this permission, Android will not install the update.", fontSize = 13.sp)
+                                Text(stringResource(R.string.ws_update_allow_unknown_apps), fontSize = 13.sp)
                             }
                         }
                     }
@@ -3528,12 +4031,12 @@ private fun ProjectsScreen(
                         if (total > 0) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
                         else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                         Text(
-                            if (total > 0) "Downloading ${formatMegabytes(downloaded)} / ${formatMegabytes(total)} · ${(progress * 100).toInt()}%" else "Downloading ${formatMegabytes(downloaded)}",
+                            if (total > 0) stringResource(R.string.ws_update_downloading_progress, formatMegabytes(downloaded), formatMegabytes(total), (progress * 100).toInt()) else stringResource(R.string.ws_update_downloading, formatMegabytes(downloaded)),
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (installing) Text("Download verified. Opening Android installer…", color = PocketGreen, fontSize = 13.sp)
+                    if (installing) Text(stringResource(R.string.ws_update_verified_installing), color = PocketGreen, fontSize = 13.sp)
                     state.appUpdateError?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
                 }
             },
@@ -3550,10 +4053,10 @@ private fun ProjectsScreen(
                         }
                     },
                 ) {
-                    Text(when { !canInstall -> "Grant permission"; downloading -> "Downloading…"; installing -> "Installing…"; else -> "Download and install" })
+                    Text(when { !canInstall -> stringResource(R.string.ws_grant_permission); downloading -> stringResource(R.string.ws_downloading_ellipsis); installing -> stringResource(R.string.tools_installing); else -> stringResource(R.string.ws_download_and_install) })
                 }
             },
-            dismissButton = { if (!installing) TextButton(onClick = { showUpdateDialog = false }) { Text("Later") } },
+            dismissButton = { if (!installing) TextButton(onClick = { showUpdateDialog = false }) { Text(stringResource(R.string.ws_later)) } },
         )
     }
 }
@@ -3589,15 +4092,17 @@ private fun ApiStatusChip(state: AppUiState, onSettings: () -> Unit, onPing: () 
         ApiPingStatus.PINGING -> PocketOrange
         ApiPingStatus.IDLE -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
     }
+    val agentTitle = state.agentKind.localizedTitle()
+    val providerTitle = state.provider.kind.localizedTitle()
     val providerLabel = when {
         state.agentKind == AgentKind.ANTIGRAVITY ->
-            state.antigravityModel.ifBlank { state.agentKind.title }
+            state.antigravityModel.ifBlank { agentTitle }
         state.provider.model.isNotBlank() -> state.provider.model
         state.provider.baseUrl.isNotBlank() -> {
-            runCatching { java.net.URI(state.provider.baseUrl).host ?: state.provider.kind.title }
-                .getOrDefault(state.provider.kind.title)
+            runCatching { java.net.URI(state.provider.baseUrl).host ?: providerTitle }
+                .getOrDefault(providerTitle)
         }
-        else -> state.provider.kind.title
+        else -> providerTitle
     }
 
     Surface(
@@ -3635,7 +4140,7 @@ private fun ApiStatusChip(state: AppUiState, onSettings: () -> Unit, onPing: () 
                 } else {
                     Icon(
                         Icons.Default.Refresh,
-                        contentDescription = "Ping API",
+                        contentDescription = stringResource(R.string.ws_ping_api),
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -3645,13 +4150,12 @@ private fun ApiStatusChip(state: AppUiState, onSettings: () -> Unit, onPing: () 
     }
 }
 
-
-
 @Composable
 private fun ProjectCard(
     project: Project,
     taskRunning: Boolean,
     terminalRunning: Boolean,
+    buildRunning: Boolean,
     onOpen: () -> Unit,
     onRename: (String) -> Unit,
     onDelete: () -> Unit,
@@ -3663,7 +4167,12 @@ private fun ProjectCard(
     Card(Modifier.fillMaxWidth().clickable(onClick = onOpen), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                Icon(Icons.Default.Folder, null, Modifier.padding(13.dp), tint = PocketOrange)
+                Icon(
+                    if (project.type == ProjectType.ANDROID) Icons.Default.Android else Icons.Default.Folder,
+                    null,
+                    Modifier.padding(13.dp),
+                    tint = if (project.type == ProjectType.ANDROID) PocketGreen else PocketOrange,
+                )
             }
             Spacer(Modifier.width(13.dp))
             Column(Modifier.weight(1f)) {
@@ -3675,12 +4184,16 @@ private fun ProjectCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    if (taskRunning || terminalRunning) {
+                    if (taskRunning || terminalRunning || buildRunning) {
                         Spacer(Modifier.width(8.dp))
                         CircularProgressIndicator(Modifier.size(13.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.width(5.dp))
                         Text(
-                            if (taskRunning) "Task running" else "Terminal running",
+                            when {
+                                taskRunning -> stringResource(R.string.ws_task_running)
+                                buildRunning -> stringResource(R.string.an_android_build)
+                                else -> stringResource(R.string.ws_terminal_running)
+                            },
                             color = MaterialTheme.colorScheme.primary,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -3688,24 +4201,24 @@ private fun ProjectCard(
                     }
                 }
                 Text(
-                    if (project.kind == ProjectKind.QUICK_PROJECT) "Quick project" else project.description,
+                    if (project.kind == ProjectKind.QUICK_PROJECT) stringResource(R.string.projects_quick_project) else project.localizedDescription(),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
                     maxLines = 1,
                 )
                 Text("/workspace/${project.slug}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                Text("${project.language} · ${project.formattedUpdatedAt}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
+                Text("${project.language} · ${project.localizedUpdatedAt()}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp)
             }
             Box {
-                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "Project options") }
+                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.ws_project_options)) }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("Rename project") },
+                        text = { Text(stringResource(R.string.ws_rename_project)) },
                         leadingIcon = { Icon(Icons.Default.Edit, null) },
                         onClick = { menuOpen = false; renameText = project.name; showRename = true },
                     )
                     DropdownMenuItem(
-                        text = { Text("Delete project") },
+                        text = { Text(stringResource(R.string.ws_delete_project)) },
                         leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
                         onClick = { menuOpen = false; showDelete = true },
                     )
@@ -3716,19 +4229,19 @@ private fun ProjectCard(
     if (showRename) {
         AlertDialog(
             onDismissRequest = { showRename = false },
-            title = { Text("Rename project") },
-            text = { OutlinedTextField(renameText, { renameText = it }, label = { Text("Project name") }, singleLine = true) },
-            confirmButton = { TextButton(onClick = { onRename(renameText); showRename = false }, enabled = renameText.isNotBlank()) { Text("Save") } },
-            dismissButton = { TextButton(onClick = { showRename = false }) { Text("Cancel") } },
+            title = { Text(stringResource(R.string.ws_rename_project)) },
+            text = { OutlinedTextField(renameText, { renameText = it }, label = { Text(stringResource(R.string.ws_project_name)) }, singleLine = true) },
+            confirmButton = { TextButton(onClick = { onRename(renameText); showRename = false }, enabled = renameText.isNotBlank()) { Text(stringResource(R.string.action_save)) } },
+            dismissButton = { TextButton(onClick = { showRename = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
     if (showDelete) {
         AlertDialog(
             onDismissRequest = { showDelete = false },
-            title = { Text("Delete this project?") },
-            text = { Text("Its chats, files, attachments, changes, and terminal history will be permanently removed.") },
-            confirmButton = { TextButton(onClick = { onDelete(); showDelete = false }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
-            dismissButton = { TextButton(onClick = { showDelete = false }) { Text("Cancel") } },
+            title = { Text(stringResource(R.string.ws_delete_project_title)) },
+            text = { Text(stringResource(R.string.ws_delete_project_desc)) },
+            confirmButton = { TextButton(onClick = { onDelete(); showDelete = false }) { Text(stringResource(R.string.action_delete), color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { showDelete = false }) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
 }
@@ -3773,18 +4286,19 @@ private fun ReadOnlyProjectScreen(
                     Column {
                         Text(project.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            "${activeChat?.title ?: "Chat"} · History",
+                            "${activeChat?.localizedTitle() ?: stringResource(R.string.tab_chat)} · ${stringResource(R.string.ws_history)}",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Projects") }
+                    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.tab_projects)) }
                 },
                 actions = {
-                    IconButton(onClick = { showChats = true }) { Icon(Icons.Default.History, "Project chats") }
+                    IconButton(onClick = { showChats = true }) { Icon(Icons.Default.History, stringResource(R.string.ws_project_chats)) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
@@ -3817,20 +4331,6 @@ private fun ReadOnlyProjectScreen(
     }
 }
 
-private class CreateCustomDocumentContract : ActivityResultContract<Pair<String, String>, Uri?>() {
-    override fun createIntent(context: Context, input: Pair<String, String>): Intent {
-        val (fileName, mimeType) = input
-        return Intent(Intent.ACTION_CREATE_DOCUMENT)
-            .addCategory(Intent.CATEGORY_OPENABLE)
-            .setType(mimeType.ifBlank { "*/*" })
-            .putExtra(Intent.EXTRA_TITLE, fileName)
-    }
-
-    override fun parseResult(resultCode: Int, intent: Intent?): Uri? {
-        return if (resultCode == android.app.Activity.RESULT_OK) intent?.data else null
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun WorkspaceScreen(
@@ -3838,17 +4338,27 @@ private fun WorkspaceScreen(
     onBack: () -> Unit,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
+    onSteerFollowUp: (String) -> Unit,
+    onRemoveFollowUp: (String) -> Unit,
     onApproval: (Boolean) -> Unit,
     onRefreshFiles: () -> Unit,
-    onOpenFile: (WorkspaceEntry, Boolean) -> Unit,
-    onCloseFile: () -> Unit,
-    onSaveFile: (String, String) -> Unit,
-    onDeleteFile: (String) -> Unit,
-    onExportFile: (String, Uri) -> Unit,
-    onShareFile: (String) -> Unit = {},
+    onLoadProjectDirectory: (String) -> Unit,
+    onCreateWorkspaceEntry: (String, String, Boolean) -> Unit,
+    onRenameWorkspaceEntry: (String, String) -> Unit,
+    onDeleteWorkspaceEntry: (String) -> Unit,
+    onUploadToWorkspace: (String, List<Uri>) -> Unit,
+    onShareWorkspaceFile: (String) -> Unit,
+    onSaveWorkspaceFileCopy: (String, Uri) -> Unit,
     onOpenWithFile: (String) -> Unit = {},
-    onReloadOpenedFile: () -> Unit = {},
     onInstallApk: (String) -> Unit = {},
+    onOpenFile: (WorkspaceEntry) -> Unit,
+    onCloseFile: () -> Unit,
+    onBeginFileEdit: () -> Unit,
+    onUpdateFileDraft: (String) -> Unit,
+    onCancelFileEdit: () -> Unit,
+    onSaveFile: () -> Unit,
+    onReloadFile: () -> Unit,
+    onDismissFileConflict: () -> Unit,
     onUndoChanges: () -> Unit,
     onKeepChanges: () -> Unit,
     onUndoFileChange: (String) -> Unit,
@@ -3866,44 +4376,86 @@ private fun WorkspaceScreen(
     onTerminalConfirm: () -> Unit,
     onTerminalCancel: () -> Unit,
     onUseSuggestedProjectRoot: () -> Unit,
-    onExportProject: (Uri) -> Unit,
+    onExportProject: (Uri, ExportSelection) -> Unit,
     onAddAttachments: (List<Uri>) -> Unit,
     onRemoveAttachment: (String) -> Unit,
     onOpenAttachment: (ChatAttachment) -> Unit,
     onBuildAndRunAndroid: () -> Unit,
+    onAndroidAction: (AndroidAction) -> Unit,
+    onRefreshAndroidDashboard: () -> Unit,
+    onShareAndroidApk: () -> Unit,
+    onSaveAndroidApk: (Uri) -> Unit,
+    onOpenAndroidAppDetails: () -> Unit,
+    onUninstallAndroidApp: () -> Unit,
+    onOpenAndroidIssue: (AndroidBuildIssue) -> Unit,
+    onAndroidHealthFix: (AndroidHealthFix) -> Unit,
+    onRefreshAndroidHealth: () -> Unit,
+    onStartAndroidLogcat: () -> Unit,
+    onStopAndroidLogcat: () -> Unit,
+    onToggleAndroidLogcatPause: () -> Unit,
+    onClearAndroidLogcat: () -> Unit,
+    onAndroidLogcatQuery: (String) -> Unit,
+    onAndroidLogcatLevel: (AndroidLogLevel) -> Unit,
+    onOpenAndroidLogLine: (AndroidLogLine) -> Unit,
+    onCancelAndroidBuild: () -> Unit,
+    onCleanAndroid: () -> Unit,
+    onInstallAndroidTools: () -> Unit,
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val isAndroidProject = state.androidProjectDetected
     val keyboardVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    var pendingAndroidAction by remember { mutableStateOf<AndroidAction?>(null) }
+    var exportSelection by remember(state.activeProject?.id) { mutableStateOf(ExportSelection()) }
+    var exportSelectionMode by remember(state.activeProject?.id) { mutableStateOf(false) }
     val exportProjectLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip"),
-        onResult = { uri -> if (uri != null) onExportProject(uri) },
-    )
-    var pendingExportPath by rememberSaveable { mutableStateOf<String?>(null) }
-    val exportFileLauncher = rememberLauncherForActivityResult(
-        contract = CreateCustomDocumentContract(),
-        onResult = { uri ->
-            val path = pendingExportPath
-            if (uri != null && path != null) {
-                onExportFile(path, uri)
-            }
-            pendingExportPath = null
-        },
+        onResult = { uri -> if (uri != null) onExportProject(uri, exportSelection) },
     )
     val attachmentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments(),
         onResult = onAddAttachments,
     )
+    var pendingUploadParent by rememberSaveable { mutableStateOf<String?>(null) }
+    val uploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+        onResult = { uris ->
+            pendingUploadParent?.let { parent -> onUploadToWorkspace(parent, uris) }
+            pendingUploadParent = null
+        },
+    )
+    var pendingCopyPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val saveCopyLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("*/*"),
+        onResult = { uri ->
+            val path = pendingCopyPath
+            if (uri != null && path != null) onSaveWorkspaceFileCopy(path, uri)
+            pendingCopyPath = null
+        },
+    )
+    var pendingPhotoUri by rememberSaveable { mutableStateOf<String?>(null) }
+    val takePhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture(),
+        onResult = { saved ->
+            val uri = pendingPhotoUri?.let(Uri::parse)
+            pendingPhotoUri = null
+            if (saved && uri != null) onAddAttachments(listOf(uri))
+        },
+    )
     val unknownAppsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
         onResult = {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || context.packageManager.canRequestPackageInstalls()) {
-                onBuildAndRunAndroid()
+                pendingAndroidAction?.let(onAndroidAction)
             } else {
-                Toast.makeText(context, "Allow app installs to run Android projects", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, context.getString(R.string.ws_allow_app_installs), Toast.LENGTH_LONG).show()
             }
+            pendingAndroidAction = null
         },
+    )
+    val saveApkLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"),
+        onResult = { uri -> if (uri != null) onSaveAndroidApk(uri) },
     )
     val chatListState = rememberLazyListState()
     var userScrolledUp by rememberSaveable { mutableStateOf(false) }
@@ -3947,53 +4499,68 @@ private fun WorkspaceScreen(
 
     var selectedTab by rememberSaveable { mutableStateOf(WorkspaceTab.CHAT) }
     var showChats by rememberSaveable { mutableStateOf(false) }
+    var showAndroidBuild by rememberSaveable { mutableStateOf(false) }
     val activeChat = state.projectChats.firstOrNull { it.id == state.activeChatId }
+    val requestAndroidAction: (AndroidAction) -> Unit = { action ->
+        val mayInstall = action in setOf(AndroidAction.INSTALL, AndroidAction.RUN, AndroidAction.BUILD_AND_RUN)
+        if (mayInstall && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            pendingAndroidAction = action
+            unknownAppsLauncher.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
+        } else {
+            onAndroidAction(action)
+        }
+    }
+
+    LaunchedEffect(state.projectExportSucceededAtMillis) {
+        if (state.projectExportSucceededAtMillis != null) {
+            exportSelectionMode = false
+            exportSelection = ExportSelection()
+        }
+    }
+
+    if (showAndroidBuild) {
+        AndroidDashboardScreen(
+            state = state,
+            onClose = { onStopAndroidLogcat(); showAndroidBuild = false },
+            onAction = requestAndroidAction,
+            onCancelBuild = onCancelAndroidBuild,
+            onRefresh = onRefreshAndroidDashboard,
+            onInstallTools = onInstallAndroidTools,
+            onShareApk = onShareAndroidApk,
+            onSaveApk = { state.androidApkInfo?.let { saveApkLauncher.launch(it.fileName) } },
+            onOpenAppDetails = onOpenAndroidAppDetails,
+            onUninstallApp = onUninstallAndroidApp,
+            onOpenIssue = { issue -> showAndroidBuild = false; onOpenAndroidIssue(issue) },
+            onHealthFix = onAndroidHealthFix,
+            onRefreshHealth = onRefreshAndroidHealth,
+            onStartLogcat = onStartAndroidLogcat,
+            onStopLogcat = onStopAndroidLogcat,
+            onToggleLogcatPause = onToggleAndroidLogcatPause,
+            onClearLogcat = onClearAndroidLogcat,
+            onLogcatQuery = onAndroidLogcatQuery,
+            onLogcatLevel = onAndroidLogcatLevel,
+            onOpenLogLine = { line -> showAndroidBuild = false; onOpenAndroidLogLine(line) },
+        )
+        return
+    }
 
     // If a file is open, show the FileViewerScreen on top
-    if (state.openedFilePath != null) {
+    if (state.openedFile != null) {
         FileViewerScreen(
-            filePath = state.openedFilePath,
-            content = state.openedFileContent,
-            loading = state.fileContentLoading,
-            exportLoading = state.exportLoading,
-            initialEditMode = state.openedFileEditing,
+            file = state.openedFile,
+            editingAllowed = !state.isRunning && !state.projectTerminalRunning && !state.androidBuildRunning,
             onClose = {
                 onCloseFile()
                 selectedTab = WorkspaceTab.FILES
             },
-            onSave = { newContent ->
-                onSaveFile(state.openedFilePath, newContent)
-            },
-            onExport = {
-                val fileName = state.openedFilePath.substringAfterLast('/')
-                pendingExportPath = state.openedFilePath
-                exportFileLauncher.launch(fileName to mimeTypeForFileName(fileName))
-            },
-            onOpenWith = {
-                onOpenWithFile(state.openedFilePath)
-            },
-            onReload = onReloadOpenedFile,
+            onBeginEdit = onBeginFileEdit,
+            onDraftChange = onUpdateFileDraft,
+            onCancelEdit = onCancelFileEdit,
+            onSave = onSaveFile,
+            onReload = onReloadFile,
+            onDismissConflict = onDismissFileConflict,
         )
-        if (state.exportLoading) {
-            ExportProgressDialog(
-                fileName = state.exportFileName.orEmpty(),
-                message = state.exportMessage ?: "Exporting file…",
-                progress = state.exportProgress,
-                bytesWritten = state.exportBytes?.first ?: 0L,
-                totalBytes = state.exportBytes?.second ?: -1L,
-            )
-        }
         return
-    }
-
-    if (state.exportLoading) {
-        ExportProgressDialog(
-            fileName = state.exportFileName.orEmpty(),
-            message = state.exportMessage ?: "Exporting file…",
-            progress = state.exportProgress,
-            bytesWritten = state.exportBytes?.first ?: 0L,
-            totalBytes = state.exportBytes?.second ?: -1L,
-        )
     }
 
     if (showChats) {
@@ -4018,10 +4585,10 @@ private fun WorkspaceScreen(
         AlertDialog(
             onDismissRequest = onTerminalCancel,
             icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-            title = { Text("Run potentially destructive command?") },
+            title = { Text(stringResource(R.string.ws_destructive_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("This command can delete files, rewrite Git history, or change the project significantly.")
+                    Text(stringResource(R.string.ws_destructive_desc))
                     Surface(color = Color(0xFF14171E), shape = RoundedCornerShape(8.dp)) {
                         Text(
                             command,
@@ -4032,8 +4599,8 @@ private fun WorkspaceScreen(
                     }
                 }
             },
-            confirmButton = { Button(onClick = onTerminalConfirm) { Text("Run anyway") } },
-            dismissButton = { TextButton(onClick = onTerminalCancel) { Text("Cancel") } },
+            confirmButton = { Button(onClick = onTerminalConfirm) { Text(stringResource(R.string.ws_run_anyway)) } },
+            dismissButton = { TextButton(onClick = onTerminalCancel) { Text(stringResource(R.string.action_cancel)) } },
         )
     }
     Scaffold(
@@ -4053,38 +4620,28 @@ private fun WorkspaceScreen(
                                 },
                             ),
                         )
+                        // Agent first so it always stays visible; a long chat title is cut with "…".
                         Text(
-                            "${activeChat?.title ?: "Chat"} · ${if (state.agentKind == AgentKind.ANTIGRAVITY) state.agentKind.title else state.provider.kind.title}",
+                            "${if (state.agentKind == AgentKind.ANTIGRAVITY) state.agentKind.localizedTitle() else state.provider.kind.localizedTitle()} · ${activeChat?.localizedTitle() ?: stringResource(R.string.tab_chat)}",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Projects") } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.tab_projects)) } },
                 actions = {
                     if (isAndroidProject) {
                         IconButton(
-                            onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-                                    !context.packageManager.canRequestPackageInstalls()) {
-                                    unknownAppsLauncher.launch(
-                                        Intent(
-                                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                            Uri.parse("package:${context.packageName}"),
-                                        ),
-                                    )
-                                } else {
-                                    onBuildAndRunAndroid()
-                                }
-                            },
-                            enabled = !state.androidBuildRunning && !state.isRunning && !state.projectTerminalRunning,
+                            onClick = { showAndroidBuild = true },
+                            enabled = !state.isRunning && !state.projectTerminalRunning,
                         ) {
                             if (state.androidBuildRunning) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            else Icon(Icons.Default.PlayArrow, "Build and run Android app")
+                            else Icon(Icons.Default.PlayArrow, stringResource(R.string.ws_build_run_android))
                         }
                     }
-                    IconButton(onClick = { showChats = true }) { Icon(Icons.Default.History, "Project chats") }
+                    IconButton(onClick = { showChats = true }) { Icon(Icons.Default.History, stringResource(R.string.ws_project_chats)) }
                     if (state.isRunning) CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -4100,8 +4657,8 @@ private fun WorkspaceScreen(
                             if (tab == WorkspaceTab.FILES) onRefreshFiles()
                             if (tab == WorkspaceTab.TERMINAL) onTerminalOpened()
                         },
-                        icon = { Icon(tab.icon, tab.label) },
-                        label = { Text(tab.label, fontSize = 10.sp) },
+                        icon = { Icon(tab.icon, stringResource(tab.labelRes)) },
+                        label = { Text(stringResource(tab.labelRes), fontSize = 10.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = MaterialTheme.colorScheme.primary,
                             selectedTextColor = MaterialTheme.colorScheme.primary,
@@ -4113,6 +4670,13 @@ private fun WorkspaceScreen(
         },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
+            com.jarves.mh.enhanced.EnhancedExportProgressDialog(
+                exportLoading = state.exportLoading,
+                fileName = state.exportFileName,
+                message = state.exportMessage,
+                progress = state.exportProgress,
+                bytes = state.exportBytes,
+            )
             when (selectedTab) {
                 WorkspaceTab.CHAT -> ChatTab(
                     state.messages,
@@ -4131,6 +4695,16 @@ private fun WorkspaceScreen(
                     onAttach = {
                         attachmentLauncher.launch(arrayOf("image/*", "text/*", "application/json", "application/xml"))
                     },
+                    onTakePhoto = {
+                        runCatching {
+                            val uri = createCameraPhotoUri(context)
+                            pendingPhotoUri = uri.toString()
+                            takePhotoLauncher.launch(uri)
+                        }.onFailure {
+                            pendingPhotoUri = null
+                            Toast.makeText(context, context.getString(R.string.chat_camera_unavailable), Toast.LENGTH_LONG).show()
+                        }
+                    },
                     onRemoveAttachment = onRemoveAttachment,
                     onOpenAttachment = onOpenAttachment,
                     onRunInTerminal = { command ->
@@ -4138,26 +4712,51 @@ private fun WorkspaceScreen(
                         onTerminalOpened()
                         onTerminalPrepare(command)
                     },
+                    queuedFollowUps = state.queuedFollowUps,
+                    onSteerFollowUp = onSteerFollowUp,
+                    onRemoveFollowUp = onRemoveFollowUp,
                 )
                 WorkspaceTab.FILES -> FilesTab(
                     files = state.workspaceFiles,
                     loading = state.filesLoading,
-                    exportLoading = state.exportLoading,
                     suggestedProjectRoot = state.suggestedProjectRoot,
                     onRefresh = onRefreshFiles,
+                    onLoadDirectory = onLoadProjectDirectory,
                     onOpenFile = onOpenFile,
                     onUseSuggestedProjectRoot = onUseSuggestedProjectRoot,
-                    onExport = {
+                    selectionMode = exportSelectionMode,
+                    exportSelection = exportSelection,
+                    exportRunning = state.projectExportRunning,
+                    exportEnabled = !state.isRunning && !state.projectTerminalRunning && !state.androidBuildRunning,
+                    onEnterSelection = {
+                        exportSelection = ExportSelection()
+                        exportSelectionMode = true
+                    },
+                    onCancelSelection = {
+                        exportSelectionMode = false
+                        exportSelection = ExportSelection()
+                    },
+                    onToggleSelection = { entry -> exportSelection = exportSelection.toggled(entry.path, entry.isDirectory) },
+                    onSelectAll = { exportSelection = ExportSelection() },
+                    onDownloadSelection = {
                         exportProjectLauncher.launch("${state.activeProject?.slug ?: "project"}.zip")
                     },
-                    onExportFile = { entry ->
-                        pendingExportPath = entry.path
-                        exportFileLauncher.launch(entry.name to mimeTypeForFileName(entry.name))
+                    fileOpsEnabled = !state.isRunning && !state.projectTerminalRunning &&
+                        !state.androidBuildRunning && !state.projectExportRunning,
+                    onCreateEntry = onCreateWorkspaceEntry,
+                    onRenameEntry = onRenameWorkspaceEntry,
+                    onDeleteEntry = onDeleteWorkspaceEntry,
+                    onUploadInto = { parent ->
+                        pendingUploadParent = parent
+                        uploadLauncher.launch(arrayOf("*/*"))
                     },
-                    onShareFile = onShareFile,
+                    onShareFile = onShareWorkspaceFile,
+                    onSaveFileCopy = { path ->
+                        pendingCopyPath = path
+                        saveCopyLauncher.launch(path.substringAfterLast('/'))
+                    },
                     onOpenWithFile = onOpenWithFile,
                     onInstallApk = onInstallApk,
-                    onDeleteFile = onDeleteFile,
                 )
                 WorkspaceTab.TERMINAL -> TerminalScreen(
                     lines = state.projectTerminalLines,
@@ -4168,7 +4767,7 @@ private fun WorkspaceScreen(
                     onClear = onTerminalClear,
                     onToggleTheme = {},
                     themeMode = state.themeMode,
-                    title = "Project Terminal",
+                    title = stringResource(R.string.workspace_project_terminal),
                     subtitle = "${state.projectTerminalCwd} · Ubuntu PRoot",
                     liveOutput = state.projectTerminalLiveOutput,
                     currentCommand = state.projectTerminalCommand,
@@ -4205,18 +4804,18 @@ private fun ChatSwitcherDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Project chats") },
+        title = { Text(stringResource(R.string.ws_project_chats)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (allowCreate) {
                     Button(onClick = onCreate, enabled = switchingEnabled, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Add, null)
                         Spacer(Modifier.width(8.dp))
-                        Text("New chat")
+                        Text(stringResource(R.string.ws_new_chat))
                     }
                 }
                 if (!switchingEnabled) {
-                    Text("Finish the running task before switching chats.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.ws_finish_task_before_switch), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(chats, key = { it.id }) { chat ->
@@ -4229,246 +4828,919 @@ private fun ChatSwitcherDialog(
                                 Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
-                                    Text(chat.title, fontWeight = if (chat.id == activeChatId) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                                    Text(chat.localizedTitle(), fontWeight = if (chat.id == activeChatId) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
                                     Text(
-                                        if (chat.id == activeChatId) "Current chat" else "Saved conversation",
+                                        if (chat.id == activeChatId) stringResource(R.string.ws_current_chat) else stringResource(R.string.ws_saved_conversation),
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                if (chat.id == activeChatId) Icon(Icons.Default.Check, "Current", tint = PocketGreen)
+                                if (chat.id == activeChatId) Icon(Icons.Default.Check, stringResource(R.string.ws_current), tint = PocketGreen)
                             }
                         }
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) } },
     )
+}
+
+private enum class AndroidDashboardSection { OVERVIEW, BUILD, LOGCAT, HEALTH }
+
+@Composable
+private fun androidStageLabel(stage: AndroidBuildStage): String = stringResource(
+    when (stage) {
+        AndroidBuildStage.IDLE -> R.string.android_stage_idle
+        AndroidBuildStage.PREPARING -> R.string.android_stage_preparing
+        AndroidBuildStage.RESOLVING -> R.string.android_stage_resolving
+        AndroidBuildStage.COMPILING -> R.string.android_stage_compiling
+        AndroidBuildStage.RESOURCES -> R.string.android_stage_resources
+        AndroidBuildStage.PACKAGING -> R.string.android_stage_packaging
+        AndroidBuildStage.FINDING_APK -> R.string.android_stage_finding_apk
+        AndroidBuildStage.INSTALLING -> R.string.android_stage_installing
+        AndroidBuildStage.LAUNCHING -> R.string.android_stage_launching
+        AndroidBuildStage.COMPLETE -> R.string.android_stage_complete
+        AndroidBuildStage.FAILED -> R.string.android_stage_failed
+        AndroidBuildStage.CANCELLING -> R.string.android_stage_cancelling
+        AndroidBuildStage.CANCELLED -> R.string.android_stage_cancelled
+    },
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AndroidDashboardScreen(
+    state: AppUiState,
+    onClose: () -> Unit,
+    onAction: (AndroidAction) -> Unit,
+    onCancelBuild: () -> Unit,
+    onRefresh: () -> Unit,
+    onInstallTools: () -> Unit,
+    onShareApk: () -> Unit,
+    onSaveApk: () -> Unit,
+    onOpenAppDetails: () -> Unit,
+    onUninstallApp: () -> Unit,
+    onOpenIssue: (AndroidBuildIssue) -> Unit,
+    onHealthFix: (AndroidHealthFix) -> Unit,
+    onRefreshHealth: () -> Unit,
+    onStartLogcat: () -> Unit,
+    onStopLogcat: () -> Unit,
+    onToggleLogcatPause: () -> Unit,
+    onClearLogcat: () -> Unit,
+    onLogcatQuery: (String) -> Unit,
+    onLogcatLevel: (AndroidLogLevel) -> Unit,
+    onOpenLogLine: (AndroidLogLine) -> Unit,
+) {
+    BackHandler(onBack = onClose)
+    val clipboard = LocalClipboardManager.current
+    var section by rememberSaveable { mutableStateOf(AndroidDashboardSection.OVERVIEW) }
+    var showBuildMenu by remember { mutableStateOf(false) }
+    var showRawLog by rememberSaveable { mutableStateOf(false) }
+    val liveElapsedSeconds = state.androidBuildStartedAtMillis?.let { rememberLiveElapsedSeconds(it) }
+    LaunchedEffect(Unit) { onRefresh() }
+    LaunchedEffect(section) { onStopLogcat() }
+    DisposableEffect(Unit) { onDispose(onStopLogcat) }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(stringResource(R.string.android_screen_title), fontWeight = FontWeight.Bold)
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close)) }
+                },
+                actions = {
+                    IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, stringResource(R.string.refresh)) }
+                    Box {
+                        IconButton(onClick = { showBuildMenu = true }) { Icon(Icons.Default.MoreVert, stringResource(R.string.more_options)) }
+                        DropdownMenu(expanded = showBuildMenu, onDismissRequest = { showBuildMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.force_rebuild)) },
+                                leadingIcon = { Icon(Icons.Default.Build, null) },
+                                enabled = !state.androidBuildRunning,
+                                onClick = { showBuildMenu = false; onAction(AndroidAction.FORCE_BUILD) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.clean_project)) },
+                                leadingIcon = { Icon(Icons.Default.Delete, null) },
+                                enabled = !state.androidBuildRunning,
+                                onClick = { showBuildMenu = false; onAction(AndroidAction.CLEAN) },
+                            )
+                            if (state.androidApkInfo != null) {
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.install)) },
+                                    leadingIcon = { Icon(Icons.Default.InstallMobile, null) },
+                                    enabled = !state.androidBuildRunning,
+                                    onClick = { showBuildMenu = false; onAction(AndroidAction.INSTALL) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.share)) },
+                                    leadingIcon = { Icon(Icons.Default.Share, null) },
+                                    onClick = { showBuildMenu = false; onShareApk() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.save_copy)) },
+                                    leadingIcon = { Icon(Icons.Default.Download, null) },
+                                    onClick = { showBuildMenu = false; onSaveApk() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.copy_path)) },
+                                    leadingIcon = { Icon(Icons.Default.ContentCopy, null) },
+                                    onClick = {
+                                        state.androidApkInfo?.path?.let { clipboard.setText(AnnotatedString(it)) }
+                                        showBuildMenu = false
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.app_info)) },
+                                    leadingIcon = { Icon(Icons.Default.Info, null) },
+                                    enabled = state.androidApkInfo?.installed == true,
+                                    onClick = { showBuildMenu = false; onOpenAppDetails() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.uninstall)) },
+                                    leadingIcon = { Icon(Icons.Default.Delete, null) },
+                                    enabled = state.androidApkInfo?.installed == true,
+                                    onClick = { showBuildMenu = false; onUninstallApp() },
+                                )
+                            }
+                        }
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            TabRow(selectedTabIndex = if (section == AndroidDashboardSection.HEALTH) 1 else 0) {
+                Tab(
+                    selected = section != AndroidDashboardSection.HEALTH,
+                    onClick = { section = AndroidDashboardSection.OVERVIEW },
+                    text = { Text(stringResource(R.string.android_build_tab)) },
+                )
+                Tab(
+                    selected = section == AndroidDashboardSection.HEALTH,
+                    onClick = { section = AndroidDashboardSection.HEALTH },
+                    text = { Text(stringResource(R.string.android_health_tab)) },
+                )
+            }
+
+            when (section) {
+                AndroidDashboardSection.OVERVIEW -> ProfessionalAndroidOverview(
+                    state = state,
+                    liveElapsedSeconds = liveElapsedSeconds,
+                    showRawLog = showRawLog,
+                    onToggleRawLog = { showRawLog = !showRawLog },
+                    onAction = onAction,
+                    onCancelBuild = onCancelBuild,
+                    onInstallTools = onInstallTools,
+                    onOpenIssue = onOpenIssue,
+                )
+                AndroidDashboardSection.BUILD -> {
+                    LazyColumn(
+                        Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        item {
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))) {
+                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Android, null, tint = PocketGreen)
+                                        Spacer(Modifier.width(8.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(stringResource(R.string.build_progress), fontWeight = FontWeight.SemiBold)
+                                            Text(androidStageLabel(state.androidBuildStage), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            liveElapsedSeconds?.let { live ->
+                                                val seconds = if (state.androidBuildRunning) live.toLong() else {
+                                                    ((state.androidBuildFinishedAtMillis ?: System.currentTimeMillis()) -
+                                                        (state.androidBuildStartedAtMillis ?: System.currentTimeMillis())) / 1_000L
+                                                }.coerceAtLeast(0L)
+                                                Text(formatDuration(seconds), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                        if (state.androidBuildRunning) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
+                                    }
+                                    if (state.androidBuildRunning) LinearProgressIndicator(Modifier.fillMaxWidth())
+                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf(
+                                            AndroidBuildStage.PREPARING, AndroidBuildStage.RESOLVING, AndroidBuildStage.COMPILING,
+                                            AndroidBuildStage.RESOURCES, AndroidBuildStage.PACKAGING, AndroidBuildStage.INSTALLING,
+                                            AndroidBuildStage.LAUNCHING, AndroidBuildStage.COMPLETE,
+                                        ).forEach { stage ->
+                                            val active = stage == state.androidBuildStage
+                                            Surface(
+                                                color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                                shape = RoundedCornerShape(50),
+                                            ) { Text(androidStageLabel(stage), Modifier.padding(horizontal = 9.dp, vertical = 5.dp), fontSize = 10.sp) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (DevStack.ANDROID !in state.installedDevStacks) {
+                            item {
+                                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(stringResource(R.string.android_tools_required), color = MaterialTheme.colorScheme.onErrorContainer)
+                                        Button(onClick = onInstallTools) { Text(stringResource(R.string.install_android_tools)) }
+                                    }
+                                }
+                            }
+                        }
+                        item {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { onAction(AndroidAction.BUILD) },
+                                        enabled = !state.androidBuildRunning && DevStack.ANDROID in state.installedDevStacks,
+                                        modifier = Modifier.weight(1f),
+                                    ) { Icon(Icons.Default.Build, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.build)) }
+                                    OutlinedButton(
+                                        onClick = { onAction(AndroidAction.INSTALL) }, enabled = !state.androidBuildRunning && state.androidApkInfo != null,
+                                        modifier = Modifier.weight(1f),
+                                    ) { Icon(Icons.Default.InstallMobile, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.install)) }
+                                }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { onAction(AndroidAction.RUN) }, enabled = !state.androidBuildRunning && state.androidApkInfo != null,
+                                        modifier = Modifier.weight(1f),
+                                    ) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.run)) }
+                                    Button(
+                                        onClick = { onAction(AndroidAction.BUILD_AND_RUN) },
+                                        enabled = !state.androidBuildRunning && DevStack.ANDROID in state.installedDevStacks,
+                                        modifier = Modifier.weight(1f),
+                                    ) { Icon(Icons.Default.Launch, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.build_and_run)) }
+                                }
+                                if (state.androidBuildRunning) {
+                                    OutlinedButton(onClick = onCancelBuild, modifier = Modifier.fillMaxWidth()) {
+                                        Icon(Icons.Default.Stop, null); Spacer(Modifier.width(6.dp)); Text(stringResource(R.string.cancel_operation))
+                                    }
+                                }
+                            }
+                        }
+                        if (state.androidBuildIssues.isNotEmpty()) {
+                            item { Text(stringResource(R.string.build_issues), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
+                            items(state.androidBuildIssues) { rawIssue ->
+                                val issue = rawIssue.localized(LocalContext.current)
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().clickable(enabled = issue.filePath != null) { onOpenIssue(issue) },
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                                ) {
+                                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(issue.title, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onErrorContainer)
+                                        Text(issue.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                                        issue.suggestion?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)) }
+                                        if (issue.filePath != null) Text("${issue.filePath}${issue.line?.let { ":$it" }.orEmpty()}", fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                        state.androidApkInfo?.let { apk ->
+                            item {
+                                Card {
+                                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.Android, null, tint = PocketGreen)
+                                            Spacer(Modifier.width(8.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Text(apk.fileName, fontWeight = FontWeight.Bold)
+                                                Text("${formatFileSize(apk.sizeBytes)} · ${apk.packageName ?: stringResource(R.string.unknown_package)}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                            Text(if (apk.installedMatches) stringResource(R.string.installed) else stringResource(R.string.not_installed), fontSize = 10.sp)
+                                        }
+                                        if (apk.stale) {
+                                            Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(8.dp)) {
+                                                Text(stringResource(R.string.stale_apk_warning), Modifier.fillMaxWidth().padding(9.dp), fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                                            }
+                                        }
+                                        Text(
+                                            stringResource(R.string.apk_version_info, apk.versionName ?: "—", apk.versionCode?.toString() ?: "—", apk.minSdk?.toString() ?: "—", apk.targetSdk?.toString() ?: "—"),
+                                            fontSize = 11.sp,
+                                        )
+                                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            TextButton(onClick = onShareApk) { Icon(Icons.Default.Share, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.share)) }
+                                            TextButton(onClick = onSaveApk) { Icon(Icons.Default.Download, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.save_copy)) }
+                                            TextButton(onClick = { clipboard.setText(AnnotatedString(apk.path)) }) { Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.copy_path)) }
+                                            TextButton(onClick = onOpenAppDetails, enabled = apk.installed) { Icon(Icons.Default.Info, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.app_info)) }
+                                            TextButton(onClick = onUninstallApp, enabled = apk.installed) { Icon(Icons.Default.Delete, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.uninstall)) }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (state.androidBuildLog.isNotBlank()) {
+                            item {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    TextButton(onClick = { showRawLog = !showRawLog }, modifier = Modifier.weight(1f)) {
+                                        Text(stringResource(if (showRawLog) R.string.hide_build_details else R.string.show_build_details))
+                                    }
+                                    TextButton(onClick = { clipboard.setText(AnnotatedString(state.androidBuildLog)) }) {
+                                        Icon(Icons.Default.ContentCopy, null); Spacer(Modifier.width(4.dp)); Text(stringResource(R.string.copy_log))
+                                    }
+                                }
+                                if (showRawLog) Surface(color = Color(0xFF11141A), shape = RoundedCornerShape(12.dp)) {
+                                    SelectionContainer {
+                                        Text(
+                                            state.androidBuildLog,
+                                            Modifier.fillMaxWidth().heightIn(max = 360.dp).verticalScroll(rememberScrollState()).padding(12.dp),
+                                            color = Color(0xFFD7DEE9), fontFamily = FontFamily.Monospace, fontSize = 10.sp, lineHeight = 14.sp,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                AndroidDashboardSection.LOGCAT -> {
+                    val logcat = state.androidLogcat
+                    val filtered = remember(logcat.lines, logcat.minimumLevel, logcat.query) {
+                        logcat.lines.filter { line ->
+                            line.level.ordinal >= logcat.minimumLevel.ordinal &&
+                                (logcat.query.isBlank() || line.text.contains(logcat.query, ignoreCase = true))
+                        }
+                    }
+                    Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (!logcat.available) {
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(stringResource(R.string.logcat_access_required), fontWeight = FontWeight.Bold)
+                                    Text(logcat.message ?: stringResource(R.string.logcat_access_description), fontSize = 12.sp)
+                                    val command = MainViewModel.LOGCAT_GRANT_COMMAND
+                                    Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(8.dp)) {
+                                        Text(command, Modifier.fillMaxWidth().clickable { clipboard.setText(AnnotatedString(command)) }.padding(10.dp), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                                    }
+                                    Button(onClick = { clipboard.setText(AnnotatedString(command)) }) { Text(stringResource(R.string.copy_command)) }
+                                }
+                            }
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedTextField(
+                                    value = logcat.query, onValueChange = onLogcatQuery,
+                                    modifier = Modifier.weight(1f), singleLine = true,
+                                    label = { Text(stringResource(R.string.search_logs)) },
+                                )
+                                IconButton(onClick = onToggleLogcatPause) { Icon(if (logcat.paused) Icons.Default.PlayArrow else Icons.Default.Pause, stringResource(if (logcat.paused) R.string.resume else R.string.pause)) }
+                                IconButton(onClick = { clipboard.setText(AnnotatedString(filtered.joinToString("\n") { it.text })) }) {
+                                    Icon(Icons.Default.ContentCopy, stringResource(R.string.copy_log))
+                                }
+                                IconButton(onClick = onClearLogcat) { Icon(Icons.Default.ClearAll, stringResource(R.string.clear)) }
+                            }
+                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                AndroidLogLevel.entries.forEach { level ->
+                                    FilterChip(selected = logcat.minimumLevel == level, onClick = { onLogcatLevel(level) }, label = { Text(level.name.take(1)) })
+                                }
+                            }
+                            LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                items(filtered, key = { it.id }) { line ->
+                                    Text(
+                                        line.text,
+                                        modifier = Modifier.fillMaxWidth().clickable(enabled = line.filePath != null) { onOpenLogLine(line) }.padding(vertical = 2.dp),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                        color = when (line.level) {
+                                            AndroidLogLevel.ERROR, AndroidLogLevel.FATAL -> MaterialTheme.colorScheme.error
+                                            AndroidLogLevel.WARNING -> PocketOrange
+                                            else -> MaterialTheme.colorScheme.onSurface
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                AndroidDashboardSection.HEALTH -> {
+                    LazyColumn(
+                        Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        item {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(R.string.project_health), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                IconButton(onClick = onRefreshHealth, enabled = !state.androidHealthRunning) {
+                                    if (state.androidHealthRunning) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                    else Icon(Icons.Default.Refresh, stringResource(R.string.refresh))
+                                }
+                            }
+                        }
+                        items(state.androidHealthChecks, key = { it.id }) { check ->
+                            AndroidHealthCheckCard(check, clipboard, onHealthFix)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfessionalAndroidOverview(
+    state: AppUiState,
+    liveElapsedSeconds: Int?,
+    showRawLog: Boolean,
+    onToggleRawLog: () -> Unit,
+    onAction: (AndroidAction) -> Unit,
+    onCancelBuild: () -> Unit,
+    onInstallTools: () -> Unit,
+    onOpenIssue: (AndroidBuildIssue) -> Unit,
+) {
+    val apk = state.androidApkInfo
+    val toolsInstalled = DevStack.ANDROID in state.installedDevStacks
+    val primaryAction = when {
+        apk == null -> AndroidAction.BUILD
+        apk.stale -> AndroidAction.BUILD_AND_RUN
+        apk.installedMatches -> AndroidAction.RUN
+        else -> AndroidAction.INSTALL
+    }
+    val primaryLabel = when (primaryAction) {
+        AndroidAction.BUILD -> R.string.build
+        AndroidAction.INSTALL -> R.string.install
+        AndroidAction.RUN -> R.string.run_app
+        else -> R.string.build_and_run
+    }
+    val statusTitle = when {
+        state.androidBuildRunning -> androidStageLabel(state.androidBuildStage)
+        state.androidBuildStage == AndroidBuildStage.FAILED -> stringResource(R.string.android_build_failed_title)
+        apk == null -> stringResource(R.string.android_ready_to_build)
+        apk.stale -> stringResource(R.string.android_ready_to_rebuild)
+        apk.installedMatches -> stringResource(R.string.android_ready_to_run)
+        else -> stringResource(R.string.android_ready_to_install)
+    }
+    val statusDescription = when {
+        state.androidBuildRunning -> state.androidBuildMessage ?: androidStageLabel(state.androidBuildStage)
+        apk == null -> stringResource(R.string.android_no_apk_description)
+        apk.stale -> stringResource(R.string.android_source_changed_short)
+        apk.installedMatches -> stringResource(R.string.android_build_current_installed)
+        else -> stringResource(R.string.android_build_current_not_installed)
+    }
+    val elapsedSeconds = state.androidBuildStartedAtMillis?.let { start ->
+        if (state.androidBuildRunning) liveElapsedSeconds?.toLong()
+        else ((state.androidBuildFinishedAtMillis ?: start) - start).coerceAtLeast(0L) / 1_000L
+    }
+    val expectedBuildSeconds = state.androidBuildRecentDurationsMillis
+        .sorted()
+        .takeIf { it.isNotEmpty() }
+        ?.let { durations -> durations[durations.size / 2] / 1_000L }
+        ?.coerceAtLeast(1L)
+    val estimateText = when {
+        state.androidBuildRunning && expectedBuildSeconds != null -> {
+            val remaining = (expectedBuildSeconds - (elapsedSeconds ?: 0L)).coerceAtLeast(0L)
+            if (remaining > 0L) stringResource(R.string.android_estimated_remaining, formatDuration(remaining))
+            else stringResource(R.string.android_finishing_build)
+        }
+        state.androidBuildRunning -> stringResource(R.string.android_estimating_build)
+        primaryAction in setOf(AndroidAction.BUILD, AndroidAction.BUILD_AND_RUN) && expectedBuildSeconds != null ->
+            stringResource(R.string.android_usually_takes, formatDuration(expectedBuildSeconds))
+        else -> null
+    }
+    val buildSummary = when {
+        state.androidBuildRunning -> stringResource(R.string.android_build_in_progress, formatDuration(elapsedSeconds ?: 0L))
+        state.androidBuildStage == AndroidBuildStage.FAILED -> state.androidBuildMessage ?: stringResource(R.string.android_build_failed_title)
+        state.androidBuildFinishedAtMillis != null -> stringResource(R.string.android_completed_in, formatDuration(elapsedSeconds ?: 0L))
+        else -> stringResource(R.string.android_no_build_yet)
+    }
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f)),
+                shape = RoundedCornerShape(22.dp),
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            modifier = Modifier.size(54.dp),
+                            shape = CircleShape,
+                            color = when {
+                                state.androidBuildStage == AndroidBuildStage.FAILED -> MaterialTheme.colorScheme.errorContainer
+                                apk?.stale == true -> PocketOrange.copy(alpha = 0.18f)
+                                else -> PocketGreen.copy(alpha = 0.18f)
+                            },
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (state.androidBuildRunning) {
+                                    CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.5.dp)
+                                } else {
+                                    Icon(
+                                        if (state.androidBuildStage == AndroidBuildStage.FAILED || apk?.stale == true) Icons.Default.Warning else Icons.Default.Check,
+                                        null,
+                                        tint = if (state.androidBuildStage == AndroidBuildStage.FAILED) MaterialTheme.colorScheme.error else if (apk?.stale == true) PocketOrange else PocketGreen,
+                                        modifier = Modifier.size(28.dp),
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(statusTitle, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                            Text(statusDescription, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+                            apk?.let {
+                                Text(
+                                    "${it.fileName} · ${formatFileSize(it.sizeBytes)}",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            estimateText?.let {
+                                Text(it, color = PocketOrange, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                    if (state.androidBuildRunning) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    if (!toolsInstalled) {
+                        Button(onClick = onInstallTools, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                            Text(stringResource(R.string.install_android_tools))
+                        }
+                    } else if (state.androidBuildRunning) {
+                        OutlinedButton(onClick = onCancelBuild, modifier = Modifier.fillMaxWidth().height(54.dp)) {
+                            Icon(Icons.Default.Stop, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(R.string.cancel_operation))
+                        }
+                    } else {
+                        Button(
+                            onClick = { onAction(primaryAction) },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                        ) {
+                            Icon(Icons.Default.PlayArrow, null)
+                            Spacer(Modifier.width(8.dp))
+                            Text(stringResource(primaryLabel), fontWeight = FontWeight.SemiBold)
+                        }
+                        if (apk != null) {
+                            TextButton(onClick = { onAction(AndroidAction.FORCE_BUILD) }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                                Text(stringResource(R.string.android_build_again))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (state.androidBuildIssues.isNotEmpty()) {
+            item { Text(stringResource(R.string.build_issues), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
+            items(state.androidBuildIssues) { rawIssue ->
+                val issue = rawIssue.localized(LocalContext.current)
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(enabled = issue.filePath != null) { onOpenIssue(issue) },
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(16.dp),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(issue.title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onErrorContainer)
+                        Text(issue.detail, fontSize = 12.sp, color = MaterialTheme.colorScheme.onErrorContainer)
+                        issue.suggestion?.let { Text(it, fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)) }
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(shape = RoundedCornerShape(20.dp)) {
+                AndroidDashboardSummaryRow(
+                    icon = Icons.Default.Description,
+                    title = stringResource(R.string.android_build_output),
+                    subtitle = buildSummary,
+                    trailing = stringResource(R.string.android_view),
+                    tint = PocketOrange,
+                    onClick = onToggleRawLog,
+                )
+            }
+        }
+
+        if (showRawLog) {
+            item {
+                Surface(color = Color(0xFF11141A), shape = RoundedCornerShape(16.dp)) {
+                    SelectionContainer {
+                        Text(
+                            state.androidBuildLog.ifBlank { stringResource(R.string.android_no_build_output) },
+                            Modifier.fillMaxWidth().heightIn(max = 360.dp).verticalScroll(rememberScrollState()).padding(14.dp),
+                            color = Color(0xFFD7DEE9),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AndroidDashboardSummaryRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    tint: Color,
+    trailing: String? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 17.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, maxLines = 1)
+        }
+        trailing?.let {
+            Text(it, color = PocketOrange, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.width(6.dp))
+        }
+        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun AndroidHealthCheckCard(
+    check: AndroidHealthCheck,
+    clipboard: androidx.compose.ui.platform.ClipboardManager,
+    onFix: (AndroidHealthFix) -> Unit,
+) {
+    val tint = when (check.status) {
+        AndroidHealthStatus.PASSED -> PocketGreen
+        AndroidHealthStatus.WARNING -> PocketOrange
+        AndroidHealthStatus.FAILED -> MaterialTheme.colorScheme.error
+        AndroidHealthStatus.RUNNING -> MaterialTheme.colorScheme.primary
+    }
+    Card {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(if (check.status == AndroidHealthStatus.PASSED) Icons.Default.Check else Icons.Default.Warning, null, tint = tint)
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text(check.title, fontWeight = FontWeight.SemiBold)
+                Text(check.detail, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (check.fix != AndroidHealthFix.NONE) {
+                TextButton(onClick = {
+                    if (check.fix == AndroidHealthFix.COPY_LOGCAT_COMMAND) clipboard.setText(AnnotatedString(MainViewModel.LOGCAT_GRANT_COMMAND))
+                    else onFix(check.fix)
+                }) { Text(stringResource(if (check.fix == AndroidHealthFix.COPY_LOGCAT_COMMAND) R.string.copy_command else R.string.fix)) }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FileViewerScreen(
-    filePath: String,
-    content: String?,
-    loading: Boolean,
-    exportLoading: Boolean = false,
+    file: OpenedFileState,
+    editingAllowed: Boolean,
     onClose: () -> Unit,
-    initialEditMode: Boolean = false,
-    onSave: (String) -> Unit = {},
-    onExport: () -> Unit = {},
-    onOpenWith: () -> Unit = {},
-    onReload: () -> Unit = {},
+    onBeginEdit: () -> Unit,
+    onDraftChange: (String) -> Unit,
+    onCancelEdit: () -> Unit,
+    onSave: () -> Unit,
+    onReload: () -> Unit,
+    onDismissConflict: () -> Unit,
 ) {
-    val fileName = filePath.substringAfterLast('/')
+    val fileName = file.path.substringAfterLast('/')
     val ext = fileName.substringAfterLast('.', "")
     val isMarkdown = ext == "md"
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
     var copied by remember { mutableStateOf(false) }
-
-    val isTruncated = content?.endsWith("\n\n[File truncated — too large to display fully]") == true
-    var isEditing by rememberSaveable(filePath) { mutableStateOf(initialEditMode && !isTruncated) }
-    var editBuffer by remember(content) { mutableStateOf(content.orEmpty()) }
-    val hasUnsavedChanges = !isTruncated && content != null && editBuffer != content
-    var showDiscardDialog by remember { mutableStateOf(false) }
-
-    fun attemptClose() {
-        if (isEditing && hasUnsavedChanges) {
-            showDiscardDialog = true
-        } else {
-            onClose()
+    var showUnsavedDialog by remember { mutableStateOf(false) }
+    var showFind by remember { mutableStateOf(false) }
+    var findQuery by remember { mutableStateOf("") }
+    var editorValue by remember(file.path, file.editing) { mutableStateOf(TextFieldValue(file.draft)) }
+    var undoHistory by remember(file.path, file.editing) { mutableStateOf(emptyList<TextFieldValue>()) }
+    var redoHistory by remember(file.path, file.editing) { mutableStateOf(emptyList<TextFieldValue>()) }
+    val matches = remember(editorValue.text, findQuery) {
+        if (findQuery.isBlank()) emptyList() else buildList {
+            var start = 0
+            while (start <= editorValue.text.length - findQuery.length) {
+                val index = editorValue.text.indexOf(findQuery, start, ignoreCase = true)
+                if (index < 0) break
+                add(index)
+                start = index + findQuery.length.coerceAtLeast(1)
+            }
         }
     }
+    val currentMatch = matches.indexOfFirst { it >= editorValue.selection.start }.let { if (it < 0 && matches.isNotEmpty()) 0 else it }
 
-    BackHandler(onBack = ::attemptClose)
+    fun leaveEditor() {
+        if (file.dirty) showUnsavedDialog = true else onCancelEdit()
+    }
 
-    if (showDiscardDialog) {
+    BackHandler {
+        if (file.editing) leaveEditor() else onClose()
+    }
+
+    if (showUnsavedDialog) {
         AlertDialog(
-            onDismissRequest = { showDiscardDialog = false },
-            title = { Text("Unsaved changes") },
-            text = { Text("You have unsaved changes in \"$fileName\". Do you want to discard them or save before closing?") },
+            onDismissRequest = { showUnsavedDialog = false },
+            title = { Text(stringResource(R.string.unsaved_changes)) },
+            text = { Text(stringResource(R.string.unsaved_changes_description)) },
             confirmButton = {
-                Button(
-                    onClick = {
-                        onSave(editBuffer)
-                        showDiscardDialog = false
-                        onClose()
-                    },
-                ) {
-                    Text("Save & close")
-                }
+                TextButton(onClick = { showUnsavedDialog = false; onSave() }) { Text(stringResource(R.string.save)) }
             },
             dismissButton = {
                 Row {
-                    TextButton(onClick = {
-                        showDiscardDialog = false
-                        onClose()
-                    }) {
-                        Text("Discard", color = MaterialTheme.colorScheme.error)
-                    }
-                    TextButton(onClick = { showDiscardDialog = false }) {
-                        Text("Cancel")
-                    }
+                    TextButton(onClick = { showUnsavedDialog = false; onCancelEdit() }) { Text(stringResource(R.string.discard)) }
+                    TextButton(onClick = { showUnsavedDialog = false }) { Text(stringResource(R.string.keep_editing)) }
                 }
             },
         )
     }
+
+    if (file.conflict) {
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.file_changed_title)) },
+            text = { Text(stringResource(R.string.file_changed_description)) },
+            confirmButton = { TextButton(onClick = onReload) { Text(stringResource(R.string.reload)) } },
+            dismissButton = { TextButton(onClick = onDismissConflict) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+
+    // Code palette follows the app theme (light or dark) instead of a fixed dark scheme.
+    val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val codeBackground = if (darkTheme) Color(0xFF0D1117) else MaterialTheme.colorScheme.surface
+    val codeText = if (darkTheme) Color(0xFFE2E8F0) else MaterialTheme.colorScheme.onSurface
+    val gutterText = if (darkTheme) Color(0xFF6E7681) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+    val toolbarBackground = if (darkTheme) Color(0xFF161B22) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(fileName, fontWeight = FontWeight.SemiBold)
-                            if (isEditing) {
-                                Spacer(Modifier.width(6.dp))
-                                Surface(
-                                    color = MaterialTheme.colorScheme.primaryContainer,
-                                    shape = RoundedCornerShape(4.dp),
-                                ) {
-                                    Text(
-                                        "EDITING",
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    )
-                                }
-                            }
-                        }
-                        Text(filePath, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(fileName, fontWeight = FontWeight.SemiBold)
+                        Text(file.path, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     }
                 },
                 navigationIcon = {
-                    IconButton(onClick = ::attemptClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Close file")
+                    IconButton(onClick = { if (file.editing) leaveEditor() else onClose() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.close_file))
                     }
                 },
                 actions = {
-                    if (exportLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.padding(12.dp).size(20.dp),
-                            strokeWidth = 2.dp,
-                            color = PocketOrange,
-                        )
-                    }
-
-                    IconButton(onClick = onOpenWith, enabled = !exportLoading) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, "Open with another app", tint = PocketOrange)
-                    }
-
-                    IconButton(onClick = onReload, enabled = !exportLoading) {
-                        Icon(Icons.Default.Refresh, "Reload from disk")
-                    }
-
-                    IconButton(onClick = onExport, enabled = !exportLoading) {
-                        Icon(Icons.Default.Download, "Export single file", tint = PocketOrange)
-                    }
-
-                    if (!isTruncated && content != null) {
-                        if (isEditing) {
-                            IconButton(
-                                onClick = {
-                                    onSave(editBuffer)
-                                },
-                            ) {
+                    if (file.editing) {
+                        TextButton(onClick = ::leaveEditor, enabled = !file.saving) { Text(stringResource(R.string.cancel)) }
+                        IconButton(onClick = onSave, enabled = file.dirty && !file.saving && editingAllowed) {
+                            if (file.saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Icon(Icons.Default.Save, stringResource(R.string.save_file))
+                        }
+                    } else if (file.content != null) {
+                        // Empty files (e.g. just created) can still be edited; there is just nothing to copy.
+                        if (file.content.isNotEmpty()) {
+                            IconButton(onClick = {
+                                clipboard.setText(AnnotatedString(file.content))
+                                copied = true
+                                scope.launch { delay(2000); copied = false }
+                            }) {
                                 Icon(
-                                    Icons.Default.Save,
-                                    "Save changes",
-                                    tint = if (hasUnsavedChanges) PocketOrange else MaterialTheme.colorScheme.onSurface,
+                                    if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                                    stringResource(R.string.copy_file_contents),
+                                    tint = if (copied) PocketOrange else MaterialTheme.colorScheme.onSurface,
                                 )
                             }
-                            IconButton(onClick = { isEditing = false }) {
-                                Icon(Icons.Default.Visibility, "View mode")
-                            }
-                        } else {
-                            IconButton(onClick = { isEditing = true }) {
-                                Icon(Icons.Default.Edit, "Edit file")
-                            }
                         }
-                    }
-
-                    if (!isEditing && !content.isNullOrEmpty()) {
-                        IconButton(onClick = {
-                            clipboard.setText(AnnotatedString(content))
-                            copied = true
-                            scope.launch { delay(2000); copied = false }
-                        }) {
-                            Icon(
-                                if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
-                                "Copy file contents",
-                                tint = if (copied) PocketOrange else MaterialTheme.colorScheme.onSurface,
-                            )
+                        if (file.readOnlyReason == null) {
+                            IconButton(onClick = onBeginEdit, enabled = editingAllowed) {
+                                Icon(Icons.Default.Edit, stringResource(R.string.edit_file))
+                            }
                         }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
             )
         },
-        bottomBar = {
-            if (isEditing) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            if (hasUnsavedChanges) "● Unsaved changes" else "✓ Saved",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = if (hasUnsavedChanges) PocketOrange else PocketGreen,
-                        )
-                        Text(
-                            "${editBuffer.lines().size} lines · ${editBuffer.length} chars",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        },
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             when {
-                loading -> {
+                file.loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = PocketOrange)
                     }
                 }
-                content == null -> {
-                    EmptyState(Icons.Default.Description, "No content", "The file could not be read.")
+                file.content == null -> {
+                    val reason = when (file.readOnlyReason) {
+                        FileReadOnlyReason.BINARY -> R.string.file_binary_description
+                        FileReadOnlyReason.INVALID_UTF8 -> R.string.file_invalid_utf8_description
+                        FileReadOnlyReason.UNSAFE -> R.string.file_unsafe_description
+                        else -> R.string.file_could_not_read
+                    }
+                    EmptyState(Icons.Default.Description, stringResource(R.string.no_content), stringResource(reason))
                 }
-                isEditing -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF0D1117)),
-                    ) {
-                        BasicTextField(
-                            value = editBuffer,
-                            onValueChange = { editBuffer = it },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(16.dp),
-                            textStyle = TextStyle(
-                                fontFamily = FontFamily.Monospace,
+                file.editing -> {
+                    val vertical = rememberScrollState()
+                    val horizontal = rememberScrollState()
+                    Column(Modifier.fillMaxSize().background(codeBackground)) {
+                        CompositionLocalProvider(LocalContentColor provides codeText) {
+                        Row(
+                            Modifier.fillMaxWidth().background(toolbarBackground).padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    val previous = undoHistory.lastOrNull() ?: return@IconButton
+                                    undoHistory = undoHistory.dropLast(1)
+                                    redoHistory = (redoHistory + editorValue).takeLast(50)
+                                    editorValue = previous
+                                    onDraftChange(previous.text)
+                                },
+                                enabled = undoHistory.isNotEmpty(),
+                            ) { Icon(Icons.Default.Undo, stringResource(R.string.undo)) }
+                            IconButton(
+                                onClick = {
+                                    val next = redoHistory.lastOrNull() ?: return@IconButton
+                                    redoHistory = redoHistory.dropLast(1)
+                                    undoHistory = (undoHistory + editorValue).takeLast(50)
+                                    editorValue = next
+                                    onDraftChange(next.text)
+                                },
+                                enabled = redoHistory.isNotEmpty(),
+                            ) { Icon(Icons.Default.Redo, stringResource(R.string.redo)) }
+                            IconButton(onClick = { showFind = !showFind }) {
+                                Icon(Icons.Default.Search, stringResource(R.string.find_in_file))
+                            }
+                            Text(
+                                if (file.dirty) stringResource(R.string.unsaved) else stringResource(R.string.saved),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp,
+                            )
+                        }
+                        if (showFind) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                OutlinedTextField(
+                                    value = findQuery,
+                                    onValueChange = { findQuery = it },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    label = { Text(stringResource(R.string.find)) },
+                                )
+                                Text(
+                                    if (matches.isEmpty()) "0/0" else "${currentMatch + 1}/${matches.size}",
+                                    Modifier.padding(horizontal = 8.dp),
+                                    fontSize = 12.sp,
+                                    color = codeText,
+                                )
+                                IconButton(onClick = {
+                                    if (matches.isNotEmpty()) {
+                                        val index = if (currentMatch <= 0) matches.lastIndex else currentMatch - 1
+                                        editorValue = editorValue.copy(selection = TextRange(matches[index], matches[index] + findQuery.length))
+                                    }
+                                }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.previous_match)) }
+                                IconButton(onClick = {
+                                    if (matches.isNotEmpty()) {
+                                        val index = if (currentMatch >= matches.lastIndex) 0 else currentMatch + 1
+                                        editorValue = editorValue.copy(selection = TextRange(matches[index], matches[index] + findQuery.length))
+                                    }
+                                }) { Icon(Icons.AutoMirrored.Filled.ArrowForward, stringResource(R.string.next_match)) }
+                            }
+                        }
+                        }
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        Row(
+                            Modifier.fillMaxSize().verticalScroll(vertical),
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Text(
+                                (1..editorValue.text.count { it == '\n' } + 1).joinToString("\n"),
+                                modifier = Modifier.width(48.dp).padding(horizontal = 8.dp, vertical = 10.dp),
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                 fontSize = 13.sp,
-                                lineHeight = 19.sp,
-                                color = Color(0xFFE2E8F0),
-                            ),
-                            cursorBrush = SolidColor(PocketOrange),
-                        )
+                                lineHeight = 20.sp,
+                                color = gutterText,
+                                textAlign = TextAlign.End,
+                            )
+                            BasicTextField(
+                                value = editorValue,
+                                onValueChange = { next ->
+                                    if (next.text != editorValue.text) {
+                                        undoHistory = (undoHistory + editorValue).takeLast(50)
+                                        redoHistory = emptyList()
+                                    }
+                                    editorValue = next
+                                    onDraftChange(next.text)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .horizontalScroll(horizontal)
+                                    .widthIn(min = 720.dp)
+                                    .padding(vertical = 10.dp, horizontal = 8.dp),
+                                textStyle = androidx.compose.ui.text.TextStyle(
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontSize = 13.sp,
+                                    lineHeight = 20.sp,
+                                    color = codeText,
+                                ),
+                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            )
+                        }
                     }
                 }
                 isMarkdown -> {
@@ -4477,22 +5749,30 @@ private fun FileViewerScreen(
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        item { MarkdownText(markdown = content, color = MaterialTheme.colorScheme.onSurface) }
+                        item { MarkdownText(markdown = file.content, color = MaterialTheme.colorScheme.onSurface) }
                     }
                 }
                 else -> {
                     // Code / plain-text viewer
+                    val codeListState = rememberLazyListState()
+                    val targetIndex = file.targetLine?.minus(1)?.coerceAtLeast(0)
+                    LaunchedEffect(file.path, targetIndex) {
+                        if (targetIndex != null) codeListState.scrollToItem(targetIndex)
+                    }
                     LazyColumn(
+                        state = codeListState,
                         contentPadding = PaddingValues(0.dp),
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color(0xFF0D1117)),
+                            .background(codeBackground),
                     ) {
-                        val lines = content.lines()
+                        val lines = file.content.lines()
                         items(lines.size) { idx ->
+                            val isTargetLine = idx == targetIndex
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .background(if (isTargetLine) PocketOrange.copy(alpha = 0.18f) else Color.Transparent)
                                     .padding(vertical = 1.dp),
                                 verticalAlignment = Alignment.Top,
                             ) {
@@ -4501,9 +5781,9 @@ private fun FileViewerScreen(
                                     modifier = Modifier
                                         .width(42.dp)
                                         .padding(start = 8.dp, end = 6.dp),
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                     fontSize = 12.sp,
-                                    color = Color(0xFF4A5568),
+                                    color = gutterText,
                                     textAlign = TextAlign.End,
                                 )
                                 Text(
@@ -4511,14 +5791,23 @@ private fun FileViewerScreen(
                                     modifier = Modifier
                                         .weight(1f)
                                         .padding(end = 12.dp),
-                                    fontFamily = FontFamily.Monospace,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                                     fontSize = 13.sp,
                                     lineHeight = 19.sp,
-                                    color = Color(0xFFE2E8F0),
+                                    color = codeText,
                                 )
                             }
                         }
                     }
+                }
+            }
+            if (!file.editing && file.readOnlyReason == FileReadOnlyReason.TOO_LARGE) {
+                Surface(
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Text(stringResource(R.string.file_too_large_description), Modifier.padding(12.dp), fontSize = 12.sp)
                 }
             }
         }
@@ -4530,25 +5819,34 @@ private fun FileViewerScreen(
 private fun FilesTab(
     files: List<WorkspaceEntry>,
     loading: Boolean,
-    exportLoading: Boolean = false,
     suggestedProjectRoot: String?,
     onRefresh: () -> Unit,
-    onOpenFile: (WorkspaceEntry, Boolean) -> Unit,
+    onLoadDirectory: (String) -> Unit,
+    onOpenFile: (WorkspaceEntry) -> Unit,
     onUseSuggestedProjectRoot: () -> Unit,
-    onExport: () -> Unit,
-    onExportFile: (WorkspaceEntry) -> Unit,
-    onShareFile: (String) -> Unit = {},
-    onOpenWithFile: (String) -> Unit = {},
-    onInstallApk: (String) -> Unit = {},
-    onDeleteFile: (String) -> Unit,
+    selectionMode: Boolean,
+    exportSelection: ExportSelection,
+    exportRunning: Boolean,
+    exportEnabled: Boolean,
+    onEnterSelection: () -> Unit,
+    onCancelSelection: () -> Unit,
+    onToggleSelection: (WorkspaceEntry) -> Unit,
+    onSelectAll: () -> Unit,
+    onDownloadSelection: () -> Unit,
+    fileOpsEnabled: Boolean = false,
+    onCreateEntry: (parentPath: String, name: String, isDirectory: Boolean) -> Unit = { _, _, _ -> },
+    onRenameEntry: (path: String, newName: String) -> Unit = { _, _ -> },
+    onDeleteEntry: (path: String) -> Unit = {},
+    onUploadInto: (parentPath: String) -> Unit = {},
+    onShareFile: (path: String) -> Unit = {},
+    onSaveFileCopy: (path: String) -> Unit = {},
+    onOpenWithFile: (path: String) -> Unit = {},
+    onInstallApk: (path: String) -> Unit = {},
 ) {
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    var selectedPathForOptions by rememberSaveable { mutableStateOf<String?>(null) }
-    var fileToDelete by remember { mutableStateOf<WorkspaceEntry?>(null) }
-    val selectedFileForOptions = files.firstOrNull { it.path == selectedPathForOptions }
-
     var expandedDirectories by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    var nameDialog by remember { mutableStateOf<FileNameDialog?>(null) }
+    var deleteTarget by remember { mutableStateOf<WorkspaceEntry?>(null) }
+    var rootMenuOpen by remember { mutableStateOf(false) }
     LaunchedEffect(files.map { it.path }) {
         val directories = files.asSequence().filter { it.isDirectory }.map { it.path }.toSet()
         expandedDirectories = expandedDirectories.filter { it in directories }
@@ -4560,78 +5858,18 @@ private fun FilesTab(
             segments.take(depth).joinToString("/") in expandedSet
         }
     }
-    val directChildCounts = files.filter { candidate ->
-        candidate.path.contains('/')
-    }.groupingBy { candidate -> candidate.path.substringBeforeLast('/') }.eachCount()
-
-    if (selectedFileForOptions != null) {
-        val entry = selectedFileForOptions
-        FileOptionsBottomSheet(
-            entry = entry,
-            onDismiss = { selectedPathForOptions = null },
-            onExport = {
-                selectedPathForOptions = null
-                onExportFile(entry)
-            },
-            onOpenWith = {
-                selectedPathForOptions = null
-                onOpenWithFile(entry.path)
-            },
-            onShare = {
-                selectedPathForOptions = null
-                onShareFile(entry.path)
-            },
-            onInstallApk = if (entry.name.endsWith(".apk", ignoreCase = true)) {
-                {
-                    selectedPathForOptions = null
-                    onInstallApk(entry.path)
-                }
-            } else null,
-            onEdit = {
-                selectedPathForOptions = null
-                onOpenFile(entry, true)
-            },
-            onView = {
-                selectedPathForOptions = null
-                onOpenFile(entry, false)
-            },
-            onCopyPath = {
-                selectedPathForOptions = null
-                clipboard.setText(AnnotatedString(entry.path))
-                Toast.makeText(context, "Path copied: ${entry.path}", Toast.LENGTH_SHORT).show()
-            },
-            onDelete = {
-                selectedPathForOptions = null
-                fileToDelete = entry
-            },
-        )
+    fun selectionState(entry: WorkspaceEntry): ToggleableState {
+        if (!entry.isDirectory) return if (exportSelection.includes(entry.path)) ToggleableState.On else ToggleableState.Off
+        val descendants = files.filter { it.path == entry.path || it.path.startsWith("${entry.path}/") }
+        val selected = descendants.count { exportSelection.includes(it.path) }
+        return when {
+            selected == 0 -> ToggleableState.Off
+            selected == descendants.size -> ToggleableState.On
+            else -> ToggleableState.Indeterminate
+        }
     }
-
-    if (fileToDelete != null) {
-        val target = fileToDelete!!
-        AlertDialog(
-            onDismissRequest = { fileToDelete = null },
-            title = { Text("Delete ${if (target.isDirectory) "folder" else "file"}?") },
-            text = { Text("Are you sure you want to delete \"${target.name}\"? This cannot be undone.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val path = target.path
-                        fileToDelete = null
-                        onDeleteFile(path)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                ) {
-                    Text("Delete")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { fileToDelete = null }) {
-                    Text("Cancel")
-                }
-            },
-        )
-    }
+    val hasSelection = files.any { !it.isDirectory && exportSelection.includes(it.path) } ||
+        files.any { it.isDirectory && selectionState(it) != ToggleableState.Off }
 
     LazyColumn(contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
@@ -4649,27 +5887,44 @@ private fun FilesTab(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Files",
+                        stringResource(if (selectionMode) R.string.select_files else R.string.workspace_files),
                         Modifier.weight(1f),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (expandedDirectories.isNotEmpty()) {
+                    if (selectionMode) {
+                        TextButton(onClick = onSelectAll) { Text(stringResource(R.string.select_all), fontSize = 11.sp) }
+                        TextButton(onClick = onCancelSelection, enabled = !exportRunning) { Text(stringResource(R.string.cancel), fontSize = 11.sp) }
+                    } else if (expandedDirectories.isNotEmpty()) {
                         TextButton(onClick = { expandedDirectories = emptyList() }) {
                             Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(17.dp))
                             Spacer(Modifier.width(3.dp))
-                            Text("Collapse all", fontSize = 11.sp)
+                            Text(stringResource(R.string.collapse_all), fontSize = 11.sp)
                         }
                     }
-                    if (!loading && !exportLoading && files.any { !it.isDirectory }) {
-                        IconButton(onClick = onExport) { Icon(Icons.Default.Download, "Export project as ZIP") }
+                    if (!selectionMode) {
+                        Box {
+                            IconButton(onClick = { rootMenuOpen = true }, enabled = fileOpsEnabled) {
+                                Icon(Icons.Default.Add, stringResource(R.string.fm_new))
+                            }
+                            DropdownMenu(expanded = rootMenuOpen, onDismissRequest = { rootMenuOpen = false }) {
+                                FolderActionItems(
+                                    onNewFile = { rootMenuOpen = false; nameDialog = FileNameDialog.Create("", isDirectory = false) },
+                                    onNewFolder = { rootMenuOpen = false; nameDialog = FileNameDialog.Create("", isDirectory = true) },
+                                    onUpload = { rootMenuOpen = false; onUploadInto("") },
+                                )
+                            }
+                        }
                     }
-                    if (exportLoading) {
-                        CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp, color = PocketOrange)
-                    } else if (loading) {
+                    if (!selectionMode && !loading && files.any { !it.isDirectory }) {
+                        IconButton(onClick = onEnterSelection, enabled = exportEnabled) {
+                            Icon(Icons.Default.Download, stringResource(R.string.export_project_zip))
+                        }
+                    }
+                    if (loading) {
                         CircularProgressIndicator(Modifier.padding(12.dp).size(20.dp), strokeWidth = 2.dp)
                     } else {
-                        IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Refresh files") }
+                        IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, stringResource(R.string.ws_refresh_files)) }
                     }
                 }
             }
@@ -4679,52 +5934,70 @@ private fun FilesTab(
             item(key = "suggested-project-root") {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Project folder detected", fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.ws_project_folder_detected), fontWeight = FontWeight.Bold)
                         Text(
-                            "Use $suggestedProjectRoot as the project root so Chat, Terminal, Changes, and Preview all run from the same folder.",
+                            stringResource(R.string.ws_use_project_root_desc, suggestedProjectRoot),
                             fontSize = 13.sp,
                         )
                         Button(onClick = onUseSuggestedProjectRoot, modifier = Modifier.fillMaxWidth()) {
-                            Text("Use $suggestedProjectRoot as project root")
+                            Text(stringResource(R.string.ws_use_project_root, suggestedProjectRoot))
                         }
                     }
                 }
             }
         }
         if (!loading && files.isEmpty()) {
-            item { EmptyState(Icons.Default.Folder, "No files yet", "Ask your coding agent to create something in this project.") }
+            item { EmptyState(Icons.Default.Folder, stringResource(R.string.workspace_no_files), stringResource(R.string.workspace_no_files_description)) }
         }
         items(visibleFiles, key = { it.path }) { entry ->
+            var entryMenuOpen by remember { mutableStateOf(false) }
             Row(
                 Modifier
                     .fillMaxWidth()
                     .combinedClickable(
-                        onClick = {
-                            if (entry.isDirectory) {
-                                expandedDirectories = if (entry.path in expandedSet) {
-                                    expandedDirectories.filterNot { it == entry.path || it.startsWith("${entry.path}/") }
-                                } else {
-                                    expandedDirectories + entry.path
-                                }
+                        onLongClick = { if (!selectionMode && fileOpsEnabled) entryMenuOpen = true },
+                    ) {
+                        if (selectionMode) {
+                            onToggleSelection(entry)
+                        } else if (entry.isDirectory) {
+                            if (entry.path !in expandedSet) onLoadDirectory(entry.path)
+                            expandedDirectories = if (entry.path in expandedSet) {
+                                expandedDirectories.filterNot { it == entry.path || it.startsWith("${entry.path}/") }
                             } else {
-                                onOpenFile(entry, false)
+                                expandedDirectories + entry.path
                             }
-                        },
-                        onLongClick = {
-                            if (!entry.isDirectory) {
-                                selectedPathForOptions = entry.path
-                            }
-                        },
-                    )
+                        } else {
+                            onOpenFile(entry)
+                        }
+                    }
                     .padding(start = (entry.depth * 20).dp)
-                    .padding(vertical = 6.dp),
+                    .padding(vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                if (selectionMode) {
+                    if (entry.isDirectory) {
+                        TriStateCheckbox(
+                            state = selectionState(entry),
+                            onClick = { onToggleSelection(entry) },
+                        )
+                    } else {
+                        Checkbox(
+                            checked = exportSelection.includes(entry.path),
+                            onCheckedChange = { onToggleSelection(entry) },
+                        )
+                    }
+                    Spacer(Modifier.width(2.dp))
+                }
                 if (entry.isDirectory) {
                     Icon(
                         if (entry.path in expandedSet) Icons.Default.KeyboardArrowDown else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        if (entry.path in expandedSet) "Collapse folder" else "Expand folder",
-                        Modifier.size(18.dp),
+                        stringResource(if (entry.path in expandedSet) R.string.collapse_folder else R.string.expand_folder),
+                        Modifier.size(28.dp).clickable {
+                            if (entry.path !in expandedSet) onLoadDirectory(entry.path)
+                            expandedDirectories = if (entry.path in expandedSet) {
+                                expandedDirectories.filterNot { it == entry.path || it.startsWith("${entry.path}/") }
+                            } else expandedDirectories + entry.path
+                        }.padding(5.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(5.dp))
@@ -4736,24 +6009,71 @@ private fun FilesTab(
                 )
                 Spacer(Modifier.width(11.dp))
                 Text(
-                    if (entry.isDirectory) "${entry.name} (${directChildCounts[entry.path] ?: 0})" else entry.name,
+                    if (entry.isDirectory) "${entry.name} (${entry.childCount?.toString() ?: "…"})" else entry.name,
                     Modifier.weight(1f),
                     color = if (!entry.isDirectory) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                 )
                 if (!entry.isDirectory) {
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text(formatFileSize(entry.sizeBytes), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(2.dp))
-                    IconButton(
-                        onClick = { selectedPathForOptions = entry.path },
-                        modifier = Modifier.size(32.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.MoreVert,
-                            contentDescription = "Options for ${entry.name}",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                }
+                if (!selectionMode) {
+                    Box {
+                        IconButton(
+                            onClick = { entryMenuOpen = true },
+                            enabled = fileOpsEnabled,
+                            modifier = Modifier.size(32.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                stringResource(R.string.fm_more_actions, entry.name),
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        DropdownMenu(expanded = entryMenuOpen, onDismissRequest = { entryMenuOpen = false }) {
+                            if (entry.isDirectory) {
+                                FolderActionItems(
+                                    onNewFile = { entryMenuOpen = false; nameDialog = FileNameDialog.Create(entry.path, isDirectory = false) },
+                                    onNewFolder = { entryMenuOpen = false; nameDialog = FileNameDialog.Create(entry.path, isDirectory = true) },
+                                    onUpload = { entryMenuOpen = false; onUploadInto(entry.path) },
+                                )
+                            } else {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.fm_share)) },
+                                    leadingIcon = { Icon(Icons.Default.Share, null) },
+                                    onClick = { entryMenuOpen = false; onShareFile(entry.path) },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Open with…") },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null) },
+                                    onClick = { entryMenuOpen = false; onOpenWithFile(entry.path) },
+                                )
+                                if (entry.name.endsWith(".apk", ignoreCase = true)) {
+                                    DropdownMenuItem(
+                                        text = { Text("Install APK") },
+                                        leadingIcon = { Icon(Icons.Default.PlayArrow, null) },
+                                        onClick = { entryMenuOpen = false; onInstallApk(entry.path) },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.fm_save_copy)) },
+                                    leadingIcon = { Icon(Icons.Default.Download, null) },
+                                    onClick = { entryMenuOpen = false; onSaveFileCopy(entry.path) },
+                                )
+                            }
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.fm_rename)) },
+                                leadingIcon = { Icon(Icons.Default.DriveFileRenameOutline, null) },
+                                onClick = { entryMenuOpen = false; nameDialog = FileNameDialog.Rename(entry.path, entry.name) },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.fm_delete), color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = { entryMenuOpen = false; deleteTarget = entry },
+                            )
+                        }
                     }
                 }
             }
@@ -4761,285 +6081,126 @@ private fun FilesTab(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), modifier = Modifier.padding(start = (entry.depth * 20 + 42).dp))
             }
         }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FileOptionsBottomSheet(
-    entry: WorkspaceEntry,
-    onDismiss: () -> Unit,
-    onExport: () -> Unit,
-    onOpenWith: () -> Unit,
-    onShare: () -> Unit,
-    onInstallApk: (() -> Unit)? = null,
-    onEdit: () -> Unit,
-    onView: () -> Unit,
-    onCopyPath: () -> Unit,
-    onDelete: () -> Unit,
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                    modifier = Modifier.size(42.dp),
+        if (selectionMode) {
+            item(key = "download-selection") {
+                Spacer(Modifier.height(12.dp))
+                Button(
+                    onClick = onDownloadSelection,
+                    enabled = hasSelection && !exportRunning && exportEnabled,
+                    modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
                 ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Default.Description,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp),
-                        )
+                    if (exportRunning) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.Download, null)
                     }
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(if (exportRunning) R.string.creating_zip else R.string.download_zip))
                 }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
+            }
+        }
+    }
+
+    nameDialog?.let { dialog ->
+        var name by remember(dialog) {
+            val initial = (dialog as? FileNameDialog.Rename)?.currentName.orEmpty()
+            // Preselect the stem so typing replaces the name but keeps the extension.
+            mutableStateOf(TextFieldValue(initial, TextRange(0, initial.substringBeforeLast('.', initial).length)))
+        }
+        val focusRequester = remember { FocusRequester() }
+        LaunchedEffect(dialog) { focusRequester.requestFocus() }
+        val title = when (dialog) {
+            is FileNameDialog.Create -> stringResource(if (dialog.isDirectory) R.string.fm_new_folder else R.string.fm_new_file)
+            is FileNameDialog.Rename -> stringResource(R.string.fm_rename)
+        }
+        val confirm = {
+            when (dialog) {
+                is FileNameDialog.Create -> onCreateEntry(dialog.parentPath, name.text, dialog.isDirectory)
+                is FileNameDialog.Rename -> onRenameEntry(dialog.path, name.text)
+            }
+            nameDialog = null
+        }
+        AlertDialog(
+            onDismissRequest = { nameDialog = null },
+            title = { Text(title) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val parent = when (dialog) {
+                        is FileNameDialog.Create -> dialog.parentPath
+                        is FileNameDialog.Rename -> dialog.path.substringBeforeLast('/', "")
+                    }
                     Text(
-                        text = entry.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        text = "${entry.path} · ${formatFileSize(entry.sizeBytes)}",
-                        style = MaterialTheme.typography.bodySmall,
+                        "/" + parent,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                    )
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text(stringResource(R.string.fm_name)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { if (name.text.isNotBlank()) confirm() }),
+                        modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     )
                 }
-            }
-
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                modifier = Modifier.padding(bottom = 8.dp),
-            )
-
-            FileActionItem(
-                icon = Icons.Default.Download,
-                title = "Export file",
-                subtitle = "Save single file to device storage (SAF)",
-                iconTint = PocketOrange,
-                onClick = onExport,
-            )
-
-            FileActionItem(
-                icon = Icons.AutoMirrored.Filled.OpenInNew,
-                title = "Open with...",
-                subtitle = if (entry.name.endsWith(".apk", ignoreCase = true)) {
-                    "Install or inspect with another app"
-                } else {
-                    "Open in external editor or viewer"
-                },
-                iconTint = MaterialTheme.colorScheme.primary,
-                onClick = onOpenWith,
-            )
-
-            FileActionItem(
-                icon = Icons.Default.Share,
-                title = "Share file",
-                subtitle = "Send via system share sheet to any app",
-                iconTint = PocketOrange,
-                onClick = onShare,
-            )
-
-            if (onInstallApk != null) {
-                FileActionItem(
-                    icon = Icons.Default.Android,
-                    title = "Install APK",
-                    subtitle = "Install package directly on device",
-                    iconTint = MaterialTheme.colorScheme.primary,
-                    onClick = onInstallApk,
-                )
-            }
-
-            FileActionItem(
-                icon = Icons.Default.Edit,
-                title = "Edit file",
-                subtitle = "Modify code or text and save changes",
-                iconTint = MaterialTheme.colorScheme.primary,
-                onClick = onEdit,
-            )
-
-            FileActionItem(
-                icon = Icons.Default.Visibility,
-                title = "View file",
-                subtitle = "Inspect file with syntax display",
-                onClick = onView,
-            )
-
-            FileActionItem(
-                icon = Icons.Default.ContentCopy,
-                title = "Copy path",
-                subtitle = entry.path,
-                onClick = onCopyPath,
-            )
-
-            FileActionItem(
-                icon = Icons.Default.Delete,
-                title = "Delete file",
-                subtitle = "Permanently remove from workspace",
-                iconTint = MaterialTheme.colorScheme.error,
-                textColor = MaterialTheme.colorScheme.error,
-                onClick = onDelete,
-            )
-        }
-    }
-}
-
-@Composable
-private fun FileActionItem(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    iconTint: Color = MaterialTheme.colorScheme.onSurface,
-    textColor: Color = MaterialTheme.colorScheme.onSurface,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = iconTint,
-            modifier = Modifier.size(22.dp),
+            },
+            confirmButton = {
+                TextButton(onClick = confirm, enabled = name.text.isNotBlank()) {
+                    Text(stringResource(if (dialog is FileNameDialog.Rename) R.string.fm_rename else R.string.fm_create))
+                }
+            },
+            dismissButton = { TextButton(onClick = { nameDialog = null }) { Text(stringResource(R.string.action_cancel)) } },
         )
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                fontWeight = FontWeight.Medium,
-                color = textColor,
-                fontSize = 15.sp,
-            )
-            Text(
-                subtitle,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+    }
+    deleteTarget?.let { entry ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text(stringResource(R.string.fm_delete_title, entry.name)) },
+            text = { Text(stringResource(if (entry.isDirectory) R.string.fm_delete_folder_desc else R.string.fm_delete_file_desc)) },
+            confirmButton = {
+                TextButton(onClick = { onDeleteEntry(entry.path); deleteTarget = null }) {
+                    Text(stringResource(R.string.fm_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text(stringResource(R.string.action_cancel)) } },
+        )
     }
 }
 
+private sealed interface FileNameDialog {
+    data class Create(val parentPath: String, val isDirectory: Boolean) : FileNameDialog
+    data class Rename(val path: String, val currentName: String) : FileNameDialog
+}
+
 @Composable
-private fun ExportProgressDialog(
-    fileName: String,
-    message: String,
-    progress: Float,
-    bytesWritten: Long,
-    totalBytes: Long,
-) {
-    AlertDialog(
-        onDismissRequest = {},
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Default.Download,
-                    contentDescription = null,
-                    tint = PocketOrange,
-                    modifier = Modifier.size(24.dp),
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    text = "Exporting",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                if (fileName.isNotBlank()) {
-                    Text(
-                        text = fileName,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-
-                if (totalBytes > 0L) {
-                    LinearProgressIndicator(
-                        progress = { progress.coerceIn(0f, 1f) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = PocketOrange,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = "${formatFileSize(bytesWritten)} / ${formatFileSize(totalBytes)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = "${(progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = PocketOrange,
-                        )
-                    }
-                } else {
-                    LinearProgressIndicator(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(8.dp)
-                            .clip(RoundedCornerShape(4.dp)),
-                        color = PocketOrange,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                    )
-                    if (bytesWritten > 0L) {
-                        Text(
-                            text = "${formatFileSize(bytesWritten)} written",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {},
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(16.dp),
+private fun FolderActionItems(onNewFile: () -> Unit, onNewFolder: () -> Unit, onUpload: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.fm_new_file)) },
+        leadingIcon = { Icon(Icons.Default.NoteAdd, null) },
+        onClick = onNewFile,
     )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.fm_new_folder)) },
+        leadingIcon = { Icon(Icons.Default.CreateNewFolder, null) },
+        onClick = onNewFolder,
+    )
+    DropdownMenuItem(
+        text = { Text(stringResource(R.string.fm_upload_here)) },
+        leadingIcon = { Icon(Icons.Default.Upload, null) },
+        onClick = onUpload,
+    )
+}
+
+/** Creates an empty file in the app cache for the camera app to write into, shared via FileProvider. */
+private fun createCameraPhotoUri(context: Context): Uri {
+    val folder = File(context.cacheDir, "camera").apply { mkdirs() }
+    // Photos are copied into the project as attachments, so older captures are no longer needed.
+    val staleBefore = System.currentTimeMillis() - 60 * 60 * 1000L
+    folder.listFiles()?.filter { it.lastModified() < staleBefore }?.forEach { it.delete() }
+    val file = File(folder, "photo-${SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())}.jpg")
+    return FileProvider.getUriForFile(context, "${context.packageName}.files", file)
 }
 
 @Composable
@@ -5061,6 +6222,10 @@ private fun ChatTab(
     onRemoveAttachment: (String) -> Unit,
     onOpenAttachment: (ChatAttachment) -> Unit,
     onRunInTerminal: (String) -> Unit,
+    onTakePhoto: () -> Unit = {},
+    queuedFollowUps: List<QueuedFollowUp> = emptyList(),
+    onSteerFollowUp: (String) -> Unit = {},
+    onRemoveFollowUp: (String) -> Unit = {},
     readOnly: Boolean = false,
     readOnlyBlocked: Boolean = false,
     onContinueHere: () -> Unit = {},
@@ -5136,7 +6301,7 @@ private fun ChatTab(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text(
-                            "Latest",
+                            stringResource(R.string.ws_latest),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary,
@@ -5157,19 +6322,19 @@ private fun ChatTab(
                 ) {
                     Icon(Icons.Default.History, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Column(Modifier.weight(1f)) {
-                        Text("Read-only history", fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ws_readonly_history), fontWeight = FontWeight.SemiBold)
                         Text(
                             if (readOnlyBlocked) {
-                                "Another project has a running task. You can read this chat, but cannot send a message."
+                                stringResource(R.string.ws_readonly_blocked)
                             } else {
-                                "The other task finished. Open this project to continue chatting."
+                                stringResource(R.string.ws_readonly_finished)
                             },
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     if (!readOnlyBlocked) {
-                        TextButton(onClick = onContinueHere) { Text("Open") }
+                        TextButton(onClick = onContinueHere) { Text(stringResource(R.string.ws_open)) }
                     }
                 }
             }
@@ -5182,6 +6347,24 @@ private fun ChatTab(
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
+                if (queuedFollowUps.isNotEmpty()) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 180.dp)
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        queuedFollowUps.forEach { followUp ->
+                            QueuedFollowUpCard(
+                                followUp = followUp,
+                                onSteer = { onSteerFollowUp(followUp.id) },
+                                onRemove = { onRemoveFollowUp(followUp.id) },
+                            )
+                        }
+                    }
+                }
                 if (pendingAttachments.isNotEmpty()) {
                     Row(
                         Modifier
@@ -5217,17 +6400,32 @@ private fun ChatTab(
                             .padding(horizontal = 6.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.Bottom,
                     ) {
-                        IconButton(
-                            onClick = onAttach,
-                            enabled = !isRunning && pendingAttachments.size < 5,
-                            modifier = Modifier.size(40.dp),
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AttachFile,
-                                contentDescription = "Attach files",
-                                modifier = Modifier.size(20.dp),
-                                tint = if (pendingAttachments.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        var attachMenuOpen by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(
+                                onClick = { attachMenuOpen = true },
+                                enabled = pendingAttachments.size < 5,
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.AttachFile,
+                                    contentDescription = stringResource(R.string.chat_attach_files),
+                                    modifier = Modifier.size(20.dp),
+                                    tint = if (pendingAttachments.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            DropdownMenu(expanded = attachMenuOpen, onDismissRequest = { attachMenuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.chat_take_photo)) },
+                                    leadingIcon = { Icon(Icons.Default.PhotoCamera, null) },
+                                    onClick = { attachMenuOpen = false; onTakePhoto() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.chat_choose_files)) },
+                                    leadingIcon = { Icon(Icons.Default.AttachFile, null) },
+                                    onClick = { attachMenuOpen = false; onAttach() },
+                                )
+                            }
                         }
 
                         BasicTextField(
@@ -5248,7 +6446,7 @@ private fun ChatTab(
                                 Box(contentAlignment = Alignment.CenterStart) {
                                     if (prompt.isEmpty()) {
                                         Text(
-                                            text = "Message ${agentKind.title}…",
+                                            text = stringResource(R.string.chat_message_agent, stringResource(agentKind.titleRes())),
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontSize = 15.sp,
                                         )
@@ -5273,12 +6471,14 @@ private fun ChatTab(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Stop,
-                                    contentDescription = "Stop AI task",
+                                    contentDescription = stringResource(R.string.ws_stop_ai_task),
                                     tint = MaterialTheme.colorScheme.onError,
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
-                        } else {
+                            if (canSend) Spacer(Modifier.width(6.dp))
+                        }
+                        if (!isRunning || canSend) {
                             Box(
                                 modifier = Modifier
                                     .size(38.dp)
@@ -5299,7 +6499,7 @@ private fun ChatTab(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ArrowUpward,
-                                    contentDescription = "Send",
+                                    contentDescription = stringResource(R.string.chat_send),
                                     tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                     modifier = Modifier.size(19.dp),
                                 )
@@ -5307,6 +6507,51 @@ private fun ChatTab(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QueuedFollowUpCard(
+    followUp: QueuedFollowUp,
+    onSteer: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 14.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    followUp.prompt,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (followUp.attachments.isNotEmpty()) {
+                    Text(
+                        pluralStringResource(R.plurals.an_attachments, followUp.attachments.size, followUp.attachments.size),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            TextButton(onClick = onSteer) { Text(stringResource(R.string.an_steer)) }
+            IconButton(onClick = onRemove, modifier = Modifier.size(38.dp)) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = stringResource(R.string.an_remove_queued_follow_up),
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -5338,7 +6583,7 @@ private fun WorkBlockCard(message: ChatMessage) {
         )
         if (message.workItems.lastOrNull()?.title?.startsWith("Task stopped") == true) {
             Text(
-                text = "Worked for ${formatDuration(seconds)}",
+                text = stringResource(R.string.ws_worked_for, formatDuration(seconds)),
                 modifier = Modifier.padding(start = 29.dp, bottom = 6.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11.sp,
@@ -5354,8 +6599,11 @@ private fun ClaudeActivityDisclosure(
     isRunning: Boolean = false,
 ) {
     var expandedItems by rememberSaveable { mutableStateOf(emptyList<Int>()) }
+    // Older saved chats may contain hundreds of polling steps. Rendering all of them inside
+    // one lazy-list item can monopolize the UI thread, so show the latest useful window.
+    val visibleItems = items.takeLast(32)
     Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp)) {
-        if (items.isEmpty()) {
+        if (visibleItems.isEmpty()) {
             ActivitySummaryRow(
                 item = null,
                 text = headline,
@@ -5365,9 +6613,9 @@ private fun ClaudeActivityDisclosure(
                     expandedItems = if (0 in expandedItems) expandedItems - 0 else expandedItems + 0
                 },
             )
-            if (0 in expandedItems) ActivityExpandedDetail(null, "Reviewing the request and planning the next action.")
+            if (0 in expandedItems) ActivityExpandedDetail(null, stringResource(R.string.ws_activity_reviewing_request))
         } else {
-            items.forEachIndexed { index, item ->
+            visibleItems.forEachIndexed { index, item ->
                 ActivitySummaryRow(
                     item = item,
                     text = compactActivityText(item),
@@ -5540,14 +6788,18 @@ private fun ActivitySummaryRow(
         }
         Icon(
             if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-            if (expanded) "Collapse activity" else "Expand activity",
+            if (expanded) stringResource(R.string.ws_collapse_activity) else stringResource(R.string.ws_expand_activity),
             Modifier.size(18.dp),
             tint = muted,
         )
     }
 }
 
+@Composable
 private fun activityIcon(item: ActivityItem?): ImageVector {
+    // "Files changed" is stored in the language active when it was recorded; match both
+    // the current translation and the English title kept in older chat history.
+    val filesChangedTitle = stringResource(R.string.vm_files_changed)
     if (item == null) return Icons.Default.AutoAwesome
     val task = item.title
         .removePrefix("Running ")
@@ -5561,7 +6813,7 @@ private fun activityIcon(item: ActivityItem?): ImageVector {
         task.equals("Read", ignoreCase = true) -> Icons.Default.Description
         task.equals("Glob", ignoreCase = true) ||
             task.equals("Grep", ignoreCase = true) -> Icons.Default.Search
-        task.contains("file", ignoreCase = true) -> Icons.Default.Description
+        item.title == filesChangedTitle || task.contains("file", ignoreCase = true) -> Icons.Default.Description
         else -> Icons.Default.AutoAwesome
     }
 }
@@ -5590,36 +6842,78 @@ private fun ActivityExpandedDetail(item: ActivityItem?, detail: String) {
     }
 }
 
-private fun compactActivityText(item: ActivityItem): String = "${activityName(item)} · ${activityDetail(item).replace(Regex("\\s+"), " ").take(105)}"
+@Composable
+private fun compactActivityText(item: ActivityItem): String =
+    "${activityDisplayName(item)} · ${activityDetail(item).take(180).replace(Regex("\\s+"), " ").take(105)}"
 
+@Composable
 private fun activityDetail(item: ActivityItem): String {
     if (item.title == "Think" && item.detail.contains("reasoning tokens processed", true)) {
-        return "Reviewed the request and planned the next action"
+        return stringResource(R.string.ws_activity_reviewed_request)
     }
-    return item.detail.ifBlank { item.title }
+    return item.detail.ifBlank { activityDisplayName(item) }
 }
 
+@Composable
 private fun activityHeadline(items: List<ActivityItem>, seconds: Long, thinking: Boolean): String {
     val latest = items.lastOrNull()
-    if (latest == null) return "Think · Analyzing the request · ${formatDuration(seconds)}"
-    if (thinking && latest.title == "Think") return "Think · ${latest.detail} · ${formatDuration(seconds)}"
-    val detail = latest.detail.replace(Regex("\\s+"), " ").trim().ifBlank { latest.title }
-    return "${activityName(latest)} · ${detail.take(100)} · ${formatDuration(seconds)}"
+    val thinkLabel = stringResource(R.string.ws_activity_think)
+    if (latest == null) return "$thinkLabel · ${stringResource(R.string.ws_activity_analyzing_request)} · ${formatDuration(seconds)}"
+    if (thinking && latest.title == "Think") return "$thinkLabel · ${latest.detail} · ${formatDuration(seconds)}"
+    val latestName = activityDisplayName(latest)
+    val detail = latest.detail.take(180).replace(Regex("\\s+"), " ").trim().ifBlank { latestName }
+    return "$latestName · ${detail.take(100)} · ${formatDuration(seconds)}"
 }
+
+/**
+ * Activity titles are stored as written: internal English markers ("Think", "Task stopped",
+ * "Running <tool>", "<tool> completed") that the logic above parses, titles already localized
+ * by MainViewModel, or English titles persisted by older versions. Translate at display time.
+ */
+@Composable
+private fun activityDisplayName(item: ActivityItem): String {
+    val legacyRes = legacyActivityTitles[item.title]
+    return when {
+        item.title == "Think" -> stringResource(R.string.ws_activity_think)
+        item.title.startsWith("Task stopped") -> stringResource(R.string.ws_task_stopped)
+        legacyRes != null -> stringResource(legacyRes)
+        // "Running <tool>" / "<tool> completed" display as the tool name (a language-neutral ID).
+        else -> activityName(item)
+    }
+}
+
+/** English activity titles emitted by runtime bridges or saved by earlier app versions. */
+private val legacyActivityTitles: Map<String, Int> = mapOf(
+    "Understanding your request" to R.string.vm_understanding_request,
+    "Changes kept" to R.string.vm_changes_kept,
+    "Changes undone" to R.string.vm_changes_undone,
+    "Undo unavailable" to R.string.vm_undo_unavailable,
+    "Waiting for approval" to R.string.vm_waiting_approval,
+    "Applying approved changes" to R.string.vm_applying_approved,
+    "Action approved" to R.string.vm_action_approved,
+    "Action rejected" to R.string.vm_action_rejected,
+    "Files changed" to R.string.vm_files_changed,
+    "Preview ready" to R.string.vm_preview_ready,
+    "Task completed" to R.string.vm_task_completed,
+    "Task interrupted" to R.string.vm_task_interrupted,
+    "API key switched" to R.string.vm_api_key_switched,
+    "Permission denied" to R.string.md_activity_permission_denied,
+)
 
 private fun activityName(item: ActivityItem): String = item.title
     .removePrefix("Running ")
     .removeSuffix(" completed")
     .replaceFirstChar { it.uppercase() }
 
+@Composable
 private fun completedProcessSummary(
     processItems: List<ActivityItem>,
     startedAtMillis: Long?,
     finishedAtMillis: Long?,
 ): String {
     val stopped = processItems.lastOrNull()?.title?.startsWith("Task stopped") == true
-    val outcome = if (stopped) "Task stopped" else "Task completed"
-    val steps = "${processItems.size} step${if (processItems.size == 1) "" else "s"}"
+    val outcome = if (stopped) stringResource(R.string.ws_task_stopped) else stringResource(R.string.ws_task_completed)
+    val steps = if (processItems.size == 1) stringResource(R.string.ws_steps_one) else stringResource(R.string.ws_steps_many, processItems.size)
     val duration = startedAtMillis?.let { start ->
         val end = finishedAtMillis ?: System.currentTimeMillis()
         formatDuration(((end - start) / 1000L).coerceAtLeast(0))
@@ -5641,14 +6935,20 @@ private fun rememberLiveElapsedSeconds(startedAtMillis: Long): Int {
     return seconds
 }
 
+@Composable
 private fun formatDuration(totalSeconds: Long): String = when {
-    totalSeconds >= 3_600 -> "${totalSeconds / 3_600}h ${(totalSeconds % 3_600) / 60}m"
-    totalSeconds >= 60 -> "${totalSeconds / 60}m ${totalSeconds % 60}s"
-    else -> "${totalSeconds}s"
+    totalSeconds >= 3_600 -> stringResource(R.string.ws_duration_hm, totalSeconds / 3_600, (totalSeconds % 3_600) / 60)
+    totalSeconds >= 60 -> stringResource(R.string.ws_duration_ms, totalSeconds / 60, totalSeconds % 60)
+    else -> stringResource(R.string.ws_duration_s, totalSeconds)
 }
 
 @Composable
 private fun MessageBubble(message: ChatMessage, onRunInTerminal: (String) -> Unit, onOpenAttachment: (ChatAttachment) -> Unit) {
+    val displayedText = if (!message.fromUser && message.text == "Hi! Tell me what you want to build or change.") {
+        stringResource(R.string.chat_welcome)
+    } else {
+        message.text
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = if (message.fromUser) Arrangement.End else Arrangement.Start) {
         Surface(
             color = if (message.fromUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
@@ -5666,7 +6966,7 @@ private fun MessageBubble(message: ChatMessage, onRunInTerminal: (String) -> Uni
                         )
                     } else {
                         MarkdownText(
-                            markdown = message.text,
+                            markdown = displayedText,
                             modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 8.dp),
                             color = MaterialTheme.colorScheme.onSurface,
                             onRunCode = onRunInTerminal,
@@ -5675,7 +6975,7 @@ private fun MessageBubble(message: ChatMessage, onRunInTerminal: (String) -> Uni
                 }
                 if (!message.fromUser && message.workedMillis > 0L) {
                     Text(
-                        text = "Worked for ${formatDuration((message.workedMillis / 1_000L).coerceAtLeast(1L))}",
+                        text = stringResource(R.string.ws_worked_for, formatDuration((message.workedMillis / 1_000L).coerceAtLeast(1L))),
                         modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 10.dp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 11.sp,
@@ -5722,7 +7022,7 @@ private fun AttachmentChip(
             }
             if (onRemove != null) {
                 IconButton(onClick = onRemove, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Default.Close, "Remove attachment", Modifier.size(15.dp))
+                    Icon(Icons.Default.Close, stringResource(R.string.ws_remove_attachment), Modifier.size(15.dp))
                 }
             }
         }
@@ -5735,13 +7035,13 @@ private fun ApprovalCard(request: ToolRequest, onApproval: (Boolean) -> Unit) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Warning, null, tint = PocketOrange)
-                Spacer(Modifier.width(8.dp)); Text("Review this action", fontWeight = FontWeight.Bold)
+                Spacer(Modifier.width(8.dp)); Text(stringResource(R.string.ws_review_action), fontWeight = FontWeight.Bold)
             }
             Text(request.explanation)
             request.affectedPaths.forEach { Text("• $it", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { onApproval(false) }, Modifier.weight(1f)) { Text("Reject") }
-                Button(onClick = { onApproval(true) }, Modifier.weight(1f)) { Text("Allow once") }
+                OutlinedButton(onClick = { onApproval(false) }, Modifier.weight(1f)) { Text(stringResource(R.string.ws_reject)) }
+                Button(onClick = { onApproval(true) }, Modifier.weight(1f)) { Text(stringResource(R.string.ws_allow_once)) }
             }
         }
     }
@@ -5752,17 +7052,17 @@ private fun FilesTab(files: List<WorkspaceEntry>, loading: Boolean, onRefresh: (
     LazyColumn(contentPadding = PaddingValues(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Project files", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.ws_project_files), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 if (loading) {
                     CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                 } else {
-                    IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Refresh files") }
+                    IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, stringResource(R.string.ws_refresh_files)) }
                 }
             }
             Spacer(Modifier.height(8.dp))
         }
         if (!loading && files.isEmpty()) {
-            item { EmptyState(Icons.Default.Folder, "No files yet", "Ask your coding agent to create something in this project.") }
+            item { EmptyState(Icons.Default.Folder, stringResource(R.string.workspace_no_files), stringResource(R.string.workspace_no_files_description)) }
         }
         items(files, key = { it.path }) { entry ->
             Row(
@@ -5784,6 +7084,12 @@ private fun FilesTab(files: List<WorkspaceEntry>, loading: Boolean, onRefresh: (
     }
 }
 
+private fun formatFileSize(bytes: Long): String = when {
+    bytes < 1_024 -> "$bytes B"
+    bytes < 1_048_576 -> "%.1f KB".format(bytes / 1_024.0)
+    else -> "%.1f MB".format(bytes / 1_048_576.0)
+}
+
 @Composable
 private fun ChangesTab(
     changes: List<ChangeItem>,
@@ -5802,12 +7108,12 @@ private fun ChangesTab(
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
             ) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
-                    Text("Changes", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text("Review everything the AI changed.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.tab_changes), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ws_review_ai_changes), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
-        if (changes.isEmpty()) item { EmptyState(Icons.Default.Code, "No changes yet", "Ask Mobile Harness to update your project.") }
+        if (changes.isEmpty()) item { EmptyState(Icons.Default.Code, stringResource(R.string.ws_no_changes_yet), stringResource(R.string.ws_no_changes_desc)) }
         items(changes, key = { it.path }) { change ->
             val expanded = expandedPath == change.path
             Card(Modifier.fillMaxWidth()) {
@@ -5821,7 +7127,7 @@ private fun ChangesTab(
                         Column(Modifier.weight(1f)) {
                             Text(change.path, fontWeight = FontWeight.Medium, maxLines = 1)
                             Text(
-                                if (expanded) "Hide line-by-line diff" else "Tap to review diff",
+                                if (expanded) stringResource(R.string.ws_hide_diff) else stringResource(R.string.ws_tap_review_diff),
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -5848,14 +7154,14 @@ private fun ChangesTab(
                                     onUndoFile(change.path)
                                 },
                                 modifier = Modifier.weight(1f),
-                            ) { Text("Undo file") }
+                            ) { Text(stringResource(R.string.ws_undo_file)) }
                             Button(
                                 onClick = {
                                     expandedPath = null
                                     onKeepFile(change.path)
                                 },
                                 modifier = Modifier.weight(1f),
-                            ) { Text("Keep file") }
+                            ) { Text(stringResource(R.string.ws_keep_file)) }
                         }
                     }
                 }
@@ -5863,8 +7169,8 @@ private fun ChangesTab(
         }
         if (changes.isNotEmpty()) item {
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                OutlinedButton(onClick = onUndo, Modifier.weight(1f)) { Text("Undo task") }
-                Button(onClick = onKeep, Modifier.weight(1f)) { Text("Keep changes") }
+                OutlinedButton(onClick = onUndo, Modifier.weight(1f)) { Text(stringResource(R.string.ws_undo_task)) }
+                Button(onClick = onKeep, Modifier.weight(1f)) { Text(stringResource(R.string.chat_keep_changes)) }
             }
         }
     }
@@ -5909,11 +7215,13 @@ private fun PreviewTab(ready: Boolean, url: String?) {
     var addressError by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    val localUrlError = stringResource(R.string.ws_preview_use_local_url)
+    val externalBlockedError = stringResource(R.string.ws_preview_external_blocked)
 
     val navigate = {
         val normalized = normalizePreviewUrl(address)
         if (normalized == null) {
-            addressError = "Use a local URL such as localhost:3000"
+            addressError = localUrlError
         } else {
             addressError = null
             address = normalized
@@ -5945,7 +7253,7 @@ private fun PreviewTab(ready: Boolean, url: String?) {
                         },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        label = { Text("Preview URL") },
+                        label = { Text(stringResource(R.string.workspace_preview_url)) },
                         placeholder = { Text("localhost:3000") },
                         leadingIcon = {
                             Box(
@@ -5957,7 +7265,7 @@ private fun PreviewTab(ready: Boolean, url: String?) {
                         },
                         trailingIcon = {
                             IconButton(onClick = navigate) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Open URL")
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = stringResource(R.string.ws_open_url))
                             }
                         },
                         isError = addressError != null,
@@ -5971,7 +7279,7 @@ private fun PreviewTab(ready: Boolean, url: String?) {
                         onClick = { webView?.reload() ?: navigate() },
                         enabled = address.isNotBlank(),
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh preview")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.ws_refresh_preview))
                     }
                 }
                 if (addressError != null) {
@@ -5988,7 +7296,7 @@ private fun PreviewTab(ready: Boolean, url: String?) {
         }
         val targetUrl = activeUrl
         if (targetUrl == null) {
-            EmptyState(Icons.Default.PlayArrow, "Preview not running", "Enter a localhost URL above, or start a local web server in the project Terminal.")
+            EmptyState(Icons.Default.PlayArrow, stringResource(R.string.workspace_preview_not_running), stringResource(R.string.workspace_preview_not_running_description))
         } else {
             AndroidView(
                 factory = { context ->
@@ -6005,7 +7313,7 @@ private fun PreviewTab(ready: Boolean, url: String?) {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                                 val target = request?.url ?: return true
                                 if (!target.isLoopbackPreviewUrl()) {
-                                    addressError = "External navigation is blocked in project preview"
+                                    addressError = externalBlockedError
                                     return true
                                 }
                                 address = target.toString()

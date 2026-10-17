@@ -6,6 +6,8 @@ import com.jarves.mh.model.ChatMessage
 import com.jarves.mh.model.ChatAttachment
 import com.jarves.mh.model.Project
 import com.jarves.mh.model.ProjectKind
+import com.jarves.mh.model.ProjectType
+import com.jarves.mh.model.AndroidTemplate
 import com.jarves.mh.model.ProjectChat
 import com.jarves.mh.model.ProviderKind
 import com.jarves.mh.model.ProviderProfile
@@ -31,6 +33,10 @@ class AppPreferences(private val context: Context) {
     var backgroundSetupComplete: Boolean
         get() = preferences.getBoolean("background_setup_complete", false)
         set(value) { preferences.edit().putBoolean("background_setup_complete", value).apply() }
+
+    var initialLanguageSelected: Boolean
+        get() = preferences.getBoolean("initial_language_selected", onboardingComplete || runtimeSetupComplete)
+        set(value) { preferences.edit().putBoolean("initial_language_selected", value).apply() }
 
     /** Coding agent engine the user picked during setup. Absent = pre-agent-choice install → Claude. */
     var agentKind: String
@@ -97,6 +103,10 @@ class AppPreferences(private val context: Context) {
     var themeMode: String
         get() = preferences.getString("theme_mode", "dark") ?: "dark"
         set(value) { preferences.edit().putString("theme_mode", value).apply() }
+
+    var languageCode: String
+        get() = preferences.getString("language_code", "system") ?: "system"
+        set(value) { preferences.edit().putString("language_code", value).apply() }
 
     var legacySeededCredentialRemoved: Boolean
         get() = preferences.getBoolean("legacy_seeded_credential_removed", false)
@@ -244,6 +254,8 @@ class AppPreferences(private val context: Context) {
                 put("rootPath", p.rootPath)
                 put("updatedAtMillis", p.updatedAtMillis)
                 put("kind", p.kind.name)
+                put("type", p.type.name)
+                p.androidTemplate?.let { put("androidTemplate", it.name) }
             })
         }
         preferences.edit().putString("projects_json", arr.toString()).apply()
@@ -293,6 +305,12 @@ class AppPreferences(private val context: Context) {
                         "QUICK_CHAT" -> ProjectKind.QUICK_PROJECT
                         else -> runCatching { ProjectKind.valueOf(storedKind) }
                             .getOrDefault(ProjectKind.PROJECT)
+                    },
+                    type = runCatching {
+                        ProjectType.valueOf(obj.optString("type", ProjectType.GENERAL.name))
+                    }.getOrDefault(ProjectType.GENERAL),
+                    androidTemplate = obj.optString("androidTemplate").takeIf(String::isNotBlank)?.let {
+                        runCatching { AndroidTemplate.valueOf(it) }.getOrNull()
                     },
                 )
             }

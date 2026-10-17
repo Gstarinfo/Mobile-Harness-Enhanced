@@ -1,0 +1,44 @@
+name: Sync Upstream Changes
+
+on:
+  schedule:
+    - cron: '0 2 * * *' # Run automatically daily at 02:00 UTC
+  workflow_dispatch:     # Allows manual trigger via GitHub Actions UI
+
+jobs:
+  check-and-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Set up Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Configure Upstream Remote
+        run: |
+          git remote add upstream https://github.com/techjarves/Mobile-Harness.git || true
+          git fetch upstream main
+
+      - name: Check for New Upstream Commits
+        id: check_upstream
+        run: |
+          BEHIND_COUNT=$(git rev-list --count HEAD..upstream/main)
+          echo "behind_count=$BEHIND_COUNT" >> "$GITHUB_OUTPUT"
+          if [ "$BEHIND_COUNT" -gt 0 ]; then
+            echo "Found $BEHIND_COUNT new commits in upstream."
+          else
+            echo "Fork is already up-to-date with upstream."
+          fi
+
+      - name: Create Upstream Sync Branch
+        if: steps.check_upstream.outputs.behind_count > 0
+        run: |
+          git checkout -b upstream-sync-latest upstream/main
+          git push origin upstream-sync-latest --force
+          echo "Pushed upstream-sync-latest branch. You can review and merge or rebase via Pull Request."

@@ -1,5 +1,10 @@
 package com.jarves.mh.ui
 
+import com.jarves.mh.enhanced.EnhancedFileOperations.determineOpenWithConfig
+import com.jarves.mh.enhanced.EnhancedFileOperations.formatFileSize
+import com.jarves.mh.enhanced.EnhancedFileOperations.mimeTypeForFileName
+import com.jarves.mh.enhanced.EnhancedFileOperations.resolveWorkspaceFile
+import com.jarves.mh.enhanced.OpenWithConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
