@@ -365,6 +365,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
                 onStartLogin = viewModel::startAntigravityLogin,
                 onSubmitCode = viewModel::submitAntigravityCode,
                 onContinue = viewModel::finishAntigravityOnboarding,
+                onSkip = viewModel::skipOnboarding,
                 onSelectAgent = viewModel::chooseOnboardingAgent,
                 onToggleTheme = viewModel::toggleTheme,
             )
@@ -376,6 +377,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             currentLanguageCode = state.languageCode,
             onSetLanguage = viewModel::setLanguage,
             onSave = viewModel::finishOnboarding,
+            onSkip = viewModel::skipOnboarding,
             onDiscover = viewModel::discoverModels,
             onValidate = viewModel::validateProvider,
             onSelectAgent = viewModel::chooseOnboardingAgent,
@@ -477,6 +479,7 @@ private fun AntigravityOnboardingScreen(
     onStartLogin: () -> Unit,
     onSubmitCode: (String) -> Unit,
     onContinue: () -> Unit,
+    onSkip: () -> Unit,
     onSelectAgent: (AgentKind) -> Unit,
     onToggleTheme: () -> Unit,
 ) {
@@ -567,12 +570,7 @@ private fun AntigravityOnboardingScreen(
                     }
                 }
             }
-            TextButton(
-                onClick = { showAgentPicker = true },
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            ) {
-                Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
-            }
+            OnboardingSecondaryActions(onChangeAgent = { showAgentPicker = true }, onSkip = onSkip)
             Surface(color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f), shape = RoundedCornerShape(14.dp)) {
                 Text(
                     stringResource(R.string.ws_agy_auto_approval_warning),
@@ -2687,6 +2685,8 @@ private fun ProviderSetupScreen(
     currentLanguageCode: String = "system",
     onSetLanguage: ((String) -> Unit)? = null,
     onSave: (ProviderProfile, String) -> Unit,
+    // Onboarding only: finish first run without a provider; it can be configured later in Settings.
+    onSkip: (() -> Unit)? = null,
     onDiscover: suspend (ProviderProfile, String) -> ModelDiscoveryResult,
     onValidate: suspend (ProviderProfile, String, List<DiscoveredModel>) -> ConnectionValidation,
     onSelectAgent: (AgentKind) -> Unit,
@@ -2774,6 +2774,7 @@ private fun ProviderSetupScreen(
                     },
                     onContinue = { step = 2 },
                     onChangeAgent = { showAgentPicker = true },
+                    onSkip = onSkip,
                 )
                 else -> ProviderCredentialsStep(
                     provider = selected,
@@ -2805,6 +2806,7 @@ private fun ProviderSetupScreen(
                         onSave(ProviderProfile(selected, url, model.trim(), dshApi = dshApi), apiKey)
                     },
                     onChangeAgent = { showAgentPicker = true },
+                    onSkip = onSkip,
                 )
             }
         }
@@ -2911,6 +2913,7 @@ private fun ProviderChoiceStep(
     onSelected: (ProviderKind) -> Unit,
     onContinue: () -> Unit,
     onChangeAgent: () -> Unit,
+    onSkip: (() -> Unit)? = null,
 ) {
     val visibleProviders = remember(agentKind) { providersForAgent(agentKind) }
     Column(Modifier.fillMaxHeight()) {
@@ -2995,11 +2998,33 @@ private fun ProviderChoiceStep(
             Spacer(Modifier.width(8.dp))
             Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(18.dp))
         }
-        TextButton(
-            onClick = onChangeAgent,
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp),
-        ) {
+        OnboardingSecondaryActions(
+            onChangeAgent = onChangeAgent,
+            onSkip = onSkip,
+            modifier = Modifier.padding(top = 4.dp, bottom = 6.dp),
+        )
+    }
+}
+
+/** "Use another coding agent" plus, during first run, a quieter skip link directly beneath it. */
+@Composable
+private fun OnboardingSecondaryActions(
+    onChangeAgent: () -> Unit,
+    onSkip: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        TextButton(onClick = onChangeAgent, modifier = Modifier.heightIn(min = 36.dp)) {
             Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
+        }
+        if (onSkip != null) {
+            TextButton(
+                onClick = onSkip,
+                modifier = Modifier.heightIn(min = 36.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant),
+            ) {
+                Text(stringResource(R.string.provider_skip_setup_later), fontSize = 12.sp)
+            }
         }
     }
 }
@@ -3139,6 +3164,7 @@ private fun ProviderCredentialsStep(
     onValidate: suspend (List<DiscoveredModel>) -> ConnectionValidation,
     onSave: () -> Unit,
     onChangeAgent: () -> Unit,
+    onSkip: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -3167,6 +3193,7 @@ private fun ProviderCredentialsStep(
             onToken = onApiKey,
             onSave = onSave,
             onChangeAgent = onChangeAgent,
+            onSkip = onSkip,
         )
         return
     }
@@ -3424,12 +3451,7 @@ private fun ProviderCredentialsStep(
             }
         }
         item {
-            TextButton(
-                onClick = onChangeAgent,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
-            }
+            OnboardingSecondaryActions(onChangeAgent = onChangeAgent, onSkip = onSkip)
         }
     }
 }
@@ -3441,6 +3463,7 @@ private fun ClaudeSubscriptionCredentialsStep(
     onToken: (String) -> Unit,
     onSave: () -> Unit,
     onChangeAgent: () -> Unit,
+    onSkip: (() -> Unit)? = null,
 ) {
     var tokenVisible by rememberSaveable { mutableStateOf(false) }
     val hasToken = token.isNotBlank() || hasStoredToken
@@ -3516,9 +3539,7 @@ private fun ClaudeSubscriptionCredentialsStep(
             }
         }
         item {
-            TextButton(onClick = onChangeAgent, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.provider_use_another_agent), fontSize = 12.sp)
-            }
+            OnboardingSecondaryActions(onChangeAgent = onChangeAgent, onSkip = onSkip)
         }
     }
 }
