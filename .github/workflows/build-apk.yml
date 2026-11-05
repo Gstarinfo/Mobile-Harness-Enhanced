@@ -1,0 +1,42 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android NDK & CMake
+        run: |
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          echo "y" | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+          echo "y" | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125" "cmake;3.22.1" || true
+
+      - name: Grant Execute Permission to Gradle Wrapper
+        run: chmod +x gradlew
+
+      - name: Build Online APK
+        run: ./gradlew assembleOnlineDebug --stacktrace
+
+      - name: Upload Online Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-harness-enhanced-online-debug
+          path: app/build/outputs/apk/online/debug/*.apk
