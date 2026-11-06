@@ -48,6 +48,12 @@ class AppPreferences(private val context: Context) {
         get() = preferences.getString("primary_agent_kind", "") ?: ""
         set(value) { preferences.edit().putString("primary_agent_kind", value).apply() }
 
+    /** Operating mode: auto_detect, shared_daemon (AntiGem), or standalone_proot (Ubuntu). */
+    var runtimeMode: String
+        get() = preferences.getString("runtime_mode", com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT.stableId)
+            ?: com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT.stableId
+        set(value) { preferences.edit().putString("runtime_mode", value).apply() }
+
     var antigravityModel: String
         get() = preferences.getString("agent_antigravity_model", "") ?: ""
         set(value) { preferences.edit().putString("agent_antigravity_model", value).apply() }

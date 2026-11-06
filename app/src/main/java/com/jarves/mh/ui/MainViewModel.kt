@@ -408,6 +408,9 @@ data class AppUiState(
     val exportBytes: Pair<Long, Long>? = null,
     val showWhatsNew: Boolean = false,
     val backupFeatureSeen: Boolean = true,
+    val runtimeMode: com.jarves.mh.daemon.RuntimeMode = com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT,
+    val daemonDiscovery: com.jarves.mh.daemon.DaemonDiscoveryState = com.jarves.mh.daemon.DaemonDiscoveryState(),
+    val showAntiGemFallbackDialog: Boolean = false,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -434,8 +437,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.value.activeChatId?.let { preferences.saveAgentConversation(AgentKind.ANTIGRAVITY, projectId, it, id) }
         },
     )
+    private val antiGemDaemonBridge = com.jarves.mh.daemon.AntiGemDaemonBridge(application)
     private val agentRegistry = AgentRegistry.builtIns(claudeRuntime, dshRuntime, antigravityRuntime)
-    private fun activeRuntime(): com.jarves.mh.runtime.RuntimeBridge = agentRegistry.require(_state.value.agentKind).runtime
+    fun isSharedModeActive(): Boolean = when (_state.value.runtimeMode) {
+        com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON -> true
+        com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT -> _state.value.daemonDiscovery.isAvailable
+        com.jarves.mh.daemon.RuntimeMode.STANDALONE_PROOT -> false
+    }
+    private fun activeRuntime(): com.jarves.mh.runtime.RuntimeBridge =
+        if (isSharedModeActive()) antiGemDaemonBridge else agentRegistry.require(_state.value.agentKind).runtime
     private val providerApi = ProviderApiClient(application)
     private fun appUpdater(): AppUpdater = AppUpdater(
         getApplication(),
@@ -513,6 +523,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Only people updating from an earlier version get the dialog; a new install has nothing "new".
             showWhatsNew = preferences.onboardingComplete && preferences.whatsNewSeenVersionCode < BuildConfig.VERSION_CODE,
             backupFeatureSeen = preferences.backupFeatureSeen,
+            runtimeMode = com.jarves.mh.daemon.RuntimeMode.fromStored(preferences.runtimeMode),
         ),
     ).also {
         if (!preferences.onboardingComplete) preferences.whatsNewSeenVersionCode = BuildConfig.VERSION_CODE
@@ -527,6 +538,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_state.value.backupFeatureSeen) return
         preferences.backupFeatureSeen = true
         _state.update { it.copy(backupFeatureSeen = true) }
+    }
+
+    fun setRuntimeMode(mode: com.jarves.mh.daemon.RuntimeMode) {
+        preferences.runtimeMode = mode.stableId
+        _state.update { it.copy(runtimeMode = mode) }
+        viewModelScope.launch {
+            checkDaemonStatusInternal()
+            val available = _state.value.daemonDiscovery.isAvailable
+            if (mode == com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON && !available) {
+                _state.update { it.copy(showAntiGemFallbackDialog = true) }
+            } else if (mode == com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON && available) {
+                if (_state.value.startupStage == StartupStage.SETUP_REQUIRED) {
+                    preferences.runtimeSetupComplete = true
+                    _state.update { it.copy(startupStage = StartupStage.READY, startupProgress = 1f) }
+                }
+            } else if (mode == com.jarves.mh.daemon.RuntimeMode.STANDALONE_PROOT) {
+                if (!installer.isInstalled()) {
+                    _state.update { it.copy(startupStage = StartupStage.SETUP_REQUIRED) }
+                }
+            }
+        }
+    }
+
+    private suspend fun checkDaemonStatusInternal() {
+        _state.update { it.copy(daemonDiscovery = it.daemonDiscovery.copy(isChecking = true)) }
+        val discovery = withContext(Dispatchers.IO) {
+            com.jarves.mh.daemon.AntiGemDaemonClient.discover(getApplication())
+        }
+        _state.update {
+            it.copy(
+                daemonDiscovery = discovery,
+                showAntiGemFallbackDialog = it.runtimeMode == com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON && !discovery.isAvailable,
+            )
+        }
+    }
+
+    fun checkDaemonStatus() {
+        viewModelScope.launch { checkDaemonStatusInternal() }
+    }
+
+    fun startAntiGemService() {
+        com.jarves.mh.daemon.AntiGemDaemonClient.launchAntiGem(getApplication())
+    }
+
+    fun switchToStandaloneMode() {
+        setRuntimeMode(com.jarves.mh.daemon.RuntimeMode.STANDALONE_PROOT)
+    }
+
+    fun dismissAntiGemFallbackDialog() {
+        _state.update { it.copy(showAntiGemFallbackDialog = false) }
+    }
+
+    fun retryDaemonConnection() {
+        _state.update { it.copy(showAntiGemFallbackDialog = false) }
+        checkDaemonStatus()
     }
 
     init {
@@ -866,6 +932,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopProjectTerminalCommand() {
         if (!_state.value.projectTerminalRunning) return
         projectTerminalStopRequested = true
+        if (isSharedModeActive()) {
+            viewModelScope.launch(Dispatchers.IO) { antiGemDaemonBridge.stopTerminalCommand() }
+            return
+        }
         viewModelScope.launch(Dispatchers.IO) {
             projectTerminalProcess?.destroy()
             delay(400)
@@ -874,10 +944,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendProjectTerminalInput(text: String) {
+        if (isSharedModeActive()) return
         sendProcessInput(projectTerminalProcess, text)
     }
 
     fun interruptProjectTerminalCommand() {
+        if (isSharedModeActive()) {
+            viewModelScope.launch(Dispatchers.IO) { antiGemDaemonBridge.interruptTerminalCommand() }
+            return
+        }
         interruptProcess(projectTerminalProcess)
     }
 
@@ -911,6 +986,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 runCatching { claudeRuntime.stopActiveSession() }
                 runCatching { dshRuntime.stopActiveSession() }
                 runCatching { antigravityRuntime.stopActiveSession() }
+                runCatching { antiGemDaemonBridge.stopActiveSession() }
             }
             if (!current.projectTerminalRunning) {
                 projectTerminalProcess?.takeIf(Process::isAlive)?.destroyForcibly()
@@ -1024,7 +1100,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .also { cachedRecentExitSummary = it }
     }
 
-    private fun runProjectTerminalProcess(projectId: String, command: String, cwd: String): ProjectTerminalResult {
+    private suspend fun runProjectTerminalProcess(projectId: String, command: String, cwd: String): ProjectTerminalResult {
+        if (isSharedModeActive()) {
+            val res = antiGemDaemonBridge.runTerminalCommand(projectId, command, cwd) { chunk ->
+                _state.update { current ->
+                    current.copy(projectTerminalLiveOutput = current.projectTerminalLiveOutput + chunk)
+                }
+            }
+            return ProjectTerminalResult(res.output, res.exitCode, res.cwd)
+        }
         if (!installer.isInstalled()) return ProjectTerminalResult(str(R.string.vm_linux_not_ready), 1, cwd)
         val installed = installer.installedRuntime()
         val project = _state.value.projects.firstOrNull { it.id == projectId }
@@ -2063,20 +2147,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Keeps both agent bridges mapped to the same workspace root; the active one is used. */
+    /** Keeps agent bridges mapped to the same workspace root; the active one is used. */
     private fun configureBridgeRoots(projectId: String, rootPath: String) {
         claudeRuntime.configureProjectRoot(projectId, rootPath)
         dshRuntime.configureProjectRoot(projectId, rootPath)
         antigravityRuntime.configureProjectRoot(projectId, rootPath)
+        antiGemDaemonBridge.configureProjectRoot(projectId, rootPath)
     }
 
     init {
         viewModelScope.launch { RuntimeSetupController.snapshot.collect(::onSetupSnapshot) }
         viewModelScope.launch { claudeRuntime.events.collect(::onRuntimeEvent) }
+        viewModelScope.launch { antiGemDaemonBridge.events.collect(::onRuntimeEvent) }
         viewModelScope.launch { bootstrap() }
     }
 
     private suspend fun bootstrap() {
+        val discovery = withContext(Dispatchers.IO) {
+            com.jarves.mh.daemon.AntiGemDaemonClient.discover(getApplication())
+        }
+        _state.update {
+            it.copy(
+                daemonDiscovery = discovery,
+                showAntiGemFallbackDialog = it.runtimeMode == com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON && !discovery.isAvailable,
+            )
+        }
         if (!supportsArm64Runtime(android.os.Build.SUPPORTED_ABIS, System.getProperty("os.arch"))) {
             _state.update {
                 it.copy(

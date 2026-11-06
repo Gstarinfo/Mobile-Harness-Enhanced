@@ -140,4 +140,27 @@
     <string name="rt_update_version_mismatch">Update version does not match its manifest</string>
     <string name="rt_update_signature_mismatch">Update is not signed with the installed app\'s signing key</string>
     <string name="rt_api_http_public">Plain http:// is only allowed for local network addresses (like 192.168.x.x, 10.x.x.x, Tailscale or .local). Use https:// for this server.</string>
+
+    <!-- AntiGem Shared Daemon Mode -->
+    <string name="runtime_mode_title">Runtime Mode</string>
+    <string name="runtime_mode_auto">Auto-Detect</string>
+    <string name="runtime_mode_auto_desc">Automatically connects to AntiGem daemon if running; otherwise uses standalone PRoot.</string>
+    <string name="runtime_mode_shared">Shared (AntiGem Daemon)</string>
+    <string name="runtime_mode_shared_desc">Executes via local AntiGem daemon without downloading duplicate rootfs (~1.5 GB saved).</string>
+    <string name="runtime_mode_standalone">Standalone (Ubuntu PRoot)</string>
+    <string name="runtime_mode_standalone_desc">Runs in a fully isolated local Ubuntu PRoot environment.</string>
+    <string name="antigem_daemon_status">AntiGem Daemon</string>
+    <string name="antigem_daemon_available">Available (Port %1$d)</string>
+    <string name="antigem_daemon_unavailable">Not responding on 1234/1236</string>
+    <string name="antigem_daemon_checking">Checking localhost…</string>
+    <string name="antigem_not_installed">AntiGem is not installed</string>
+    <string name="antigem_fallback_title">AntiGem Daemon Unreachable</string>
+    <string name="antigem_fallback_stopped_body">AntiGem is installed on your device, but the background daemon is not currently responding on localhost:1234 or 1236.</string>
+    <string name="antigem_fallback_missing_body">Shared Mode is selected, but AntiGem is not installed on this device. Install AntiGem to use Shared Mode, or switch to Standalone PRoot mode.</string>
+    <string name="antigem_action_start">Start AntiGem Service</string>
+    <string name="antigem_action_switch_standalone">Switch to Standalone PRoot</string>
+    <string name="antigem_action_retry">Retry Connection</string>
+    <string name="antigem_detected_title">AntiGem Daemon Detected!</string>
+    <string name="antigem_detected_desc">AntiGem is running on localhost:%1$d. Shared Mode can execute coding tasks directly without downloading the ~1.5 GB Linux rootfs.</string>
+    <string name="antigem_skip_download">Use Shared Runtime (No Download)</string>
 </resources>

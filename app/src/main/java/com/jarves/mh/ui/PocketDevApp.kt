@@ -101,6 +101,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Description
@@ -309,6 +310,15 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
         }
     }
     BackupRestartEffect()
+    if (state.showAntiGemFallbackDialog) {
+        com.jarves.mh.daemon.AntiGemFallbackDialog(
+            installed = state.daemonDiscovery.installedPackage != null,
+            onStartService = viewModel::startAntiGemService,
+            onSwitchToStandalone = viewModel::switchToStandaloneMode,
+            onRetry = viewModel::retryDaemonConnection,
+            onDismiss = viewModel::dismissAntiGemFallbackDialog,
+        )
+    }
     when {
         state.startupStage == StartupStage.CHECKING -> StartupLoadingScreen(
             state = state,
@@ -341,6 +351,11 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onToggleStack = viewModel::toggleDevStack,
             onSelectAgent = viewModel::selectAgent,
             onDownload = viewModel::startRuntimeSetup,
+            runtimeMode = state.runtimeMode,
+            daemonState = state.daemonDiscovery,
+            onSelectRuntimeMode = viewModel::setRuntimeMode,
+            onRefreshDaemon = viewModel::checkDaemonStatus,
+            onStartAntiGemService = viewModel::startAntiGemService,
         )
         state.startupStage == StartupStage.INSTALLING && state.showDetailedSetupProgress ->
             RuntimeInstallationScreen(
@@ -1143,6 +1158,11 @@ private fun RuntimeSetupPromptScreen(
     onToggleStack: (DevStack) -> Unit,
     onSelectAgent: (AgentKind) -> Unit = {},
     onDownload: () -> Unit,
+    runtimeMode: com.jarves.mh.daemon.RuntimeMode = com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT,
+    daemonState: com.jarves.mh.daemon.DaemonDiscoveryState = com.jarves.mh.daemon.DaemonDiscoveryState(),
+    onSelectRuntimeMode: (com.jarves.mh.daemon.RuntimeMode) -> Unit = {},
+    onRefreshDaemon: () -> Unit = {},
+    onStartAntiGemService: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val activityManager = context.getSystemService(ActivityManager::class.java)
@@ -1331,10 +1351,25 @@ private fun RuntimeSetupPromptScreen(
                     }
                 }
 
+                Spacer(Modifier.height(16.dp))
+                com.jarves.mh.daemon.RuntimeModeSelectorCard(
+                    currentMode = runtimeMode,
+                    daemonState = daemonState,
+                    onSelectMode = onSelectRuntimeMode,
+                    onRefreshDaemon = onRefreshDaemon,
+                    onStartService = onStartAntiGemService,
+                )
+
                 Spacer(Modifier.height(20.dp))
 
+                val isSharedReady = (runtimeMode == com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON ||
+                    (runtimeMode == com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT && daemonState.isAvailable)) &&
+                    daemonState.isAvailable
+
                 Button(
-                    onClick = { currentStep = 1 },
+                    onClick = {
+                        if (isSharedReady) onDownload() else currentStep = 1
+                    },
                     enabled = compatible,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1352,13 +1387,17 @@ private fun RuntimeSetupPromptScreen(
                         horizontalArrangement = Arrangement.Center,
                     ) {
                         Text(
-                            text = if (compatible) stringResource(R.string.runtime_setup_continue_to_tools) else stringResource(R.string.runtime_setup_device_not_supported),
+                            text = when {
+                                !compatible -> stringResource(R.string.runtime_setup_device_not_supported)
+                                isSharedReady -> stringResource(R.string.antigem_skip_download)
+                                else -> stringResource(R.string.runtime_setup_continue_to_tools)
+                            },
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp,
                         )
                         Spacer(Modifier.width(8.dp))
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                            imageVector = if (isSharedReady) Icons.Default.CheckCircle else Icons.AutoMirrored.Filled.ArrowForward,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
                         )
@@ -2616,6 +2655,9 @@ private fun RootScreenHost(
                     onRefreshDiagnostics = viewModel::refreshDeveloperDiagnostics,
                     onStopInactiveProcesses = viewModel::stopInactiveDeveloperProcesses,
                     onClearRuntimeCache = viewModel::clearDeveloperRuntimeCache,
+                    onSetRuntimeMode = viewModel::setRuntimeMode,
+                    onRefreshDaemonStatus = viewModel::checkDaemonStatus,
+                    onStartAntiGemService = viewModel::startAntiGemService,
                 )
             }
         }

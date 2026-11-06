@@ -82,7 +82,19 @@ class RuntimeInstaller(private val context: Context) {
     private fun str(@androidx.annotation.StringRes id: Int, vararg args: Any): String =
         AppStrings.get(context, id, *args)
 
+    fun isSharedModeActive(): Boolean {
+        val mode = com.jarves.mh.daemon.RuntimeMode.fromStored(
+            com.jarves.mh.data.AppPreferences(context).runtimeMode,
+        )
+        return when (mode) {
+            com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON -> true
+            com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT -> com.jarves.mh.daemon.AntiGemDaemonClient.isDaemonCachedAvailable()
+            com.jarves.mh.daemon.RuntimeMode.STANDALONE_PROOT -> false
+        }
+    }
+
     fun isInstalled(): Boolean {
+        if (isSharedModeActive()) return true
         val proot = File(context.applicationInfo.nativeLibraryDir, "libproot.so")
         val rootfsLayoutReady = ensureRootfsCompatibilityLinks()
         // Devices set up before staged toolchains keep working through the legacy marker;
@@ -152,6 +164,13 @@ class RuntimeInstaller(private val context: Context) {
         agent: com.jarves.mh.model.AgentKind = com.jarves.mh.model.AgentKind.CLAUDE_CODE,
         onProgress: suspend (RuntimeInstallProgress) -> Unit,
     ): InstalledRuntime {
+        if (isSharedModeActive()) {
+            onProgress(RuntimeInstallProgress(str(R.string.rt_install_ready, "AntiGem Shared Daemon"), 1.0f))
+            return InstalledRuntime(
+                proot = File(context.applicationInfo.nativeLibraryDir, "libproot.so"),
+                rootfs = rootfs,
+            )
+        }
         require(
             supportsArm64Runtime(
                 android.os.Build.SUPPORTED_ABIS,
@@ -260,6 +279,7 @@ class RuntimeInstaller(private val context: Context) {
     }
 
     fun isAgentInstalled(agent: com.jarves.mh.model.AgentKind): Boolean {
+        if (isSharedModeActive()) return true
         return when (agent) {
             com.jarves.mh.model.AgentKind.CLAUDE_CODE -> {
                 migrateLegacyClaudeMarker()
@@ -1183,14 +1203,18 @@ class RuntimeInstaller(private val context: Context) {
         writeDevStackState(state)
     }
 
-    fun installedStacks(): Set<DevStack> = readDevStackState()
-        .filterValues { it }
-        .keys
-        .mapNotNull { name -> runCatching { DevStack.valueOf(name) }.getOrNull() }
-        .filter(::isStackInstalled)
-        .toSet()
+    fun installedStacks(): Set<DevStack> {
+        if (isSharedModeActive()) return DevStack.entries.toSet()
+        return readDevStackState()
+            .filterValues { it }
+            .keys
+            .mapNotNull { name -> runCatching { DevStack.valueOf(name) }.getOrNull() }
+            .filter(::isStackInstalled)
+            .toSet()
+    }
 
     fun isStackInstalled(stack: DevStack): Boolean {
+        if (isSharedModeActive()) return true
         if (readDevStackState()[stack.name] != true) return false
         // Older C/C++ installs lack GCC 10 and Python, which native npm packages need.
         if (stack == DevStack.CPP) return hasNativeAddonToolchain(rootfs)

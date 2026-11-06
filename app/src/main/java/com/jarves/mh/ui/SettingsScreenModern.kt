@@ -146,6 +146,9 @@ fun SettingsScreen(
     onRefreshDiagnostics: () -> Unit = {},
     onStopInactiveProcesses: () -> Unit = {},
     onClearRuntimeCache: () -> Unit = {},
+    onSetRuntimeMode: (com.jarves.mh.daemon.RuntimeMode) -> Unit = {},
+    onRefreshDaemonStatus: () -> Unit = {},
+    onStartAntiGemService: () -> Unit = {},
     showBackupDot: Boolean = false,
     onBackupOpened: () -> Unit = {},
     openBackup: Boolean = false,
@@ -430,11 +433,24 @@ fun SettingsScreen(
             item {
                 SettingsAccordion(
                     title = stringResource(R.string.settings_runtime),
-                    subtitle = "Ubuntu 20.04 PRoot · ARM64",
+                    subtitle = when (state.runtimeMode) {
+                        com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON -> stringResource(R.string.runtime_mode_shared)
+                        com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT -> if (state.daemonDiscovery.isAvailable) "Auto · AntiGem Daemon" else "Auto · Ubuntu PRoot"
+                        com.jarves.mh.daemon.RuntimeMode.STANDALONE_PROOT -> "Ubuntu 20.04 PRoot · ARM64"
+                    },
                     icon = Icons.Default.Terminal,
                     expanded = expanded == SettingsSection.RUNTIME,
                     onClick = { toggle(SettingsSection.RUNTIME) },
                 ) {
+                    com.jarves.mh.daemon.RuntimeModeSelectorCard(
+                        currentMode = state.runtimeMode,
+                        daemonState = state.daemonDiscovery,
+                        onSelectMode = onSetRuntimeMode,
+                        onRefreshDaemon = onRefreshDaemonStatus,
+                        onStartService = onStartAntiGemService,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     RuntimeInfoRow(stringResource(R.string.runtime_architecture), "ARM64 (aarch64)")
                     RuntimeInfoRow(stringResource(R.string.runtime_environment), "Ubuntu 20.04 PRoot")
                     RuntimeInfoRow(
