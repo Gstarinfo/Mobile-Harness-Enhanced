@@ -46,6 +46,7 @@ class AntiGemDaemonBridge(
 
     fun configureProjectRoot(projectId: String, path: String) {
         projectRoots[projectId] = path
+        checkpoints.configureProjectRoot(projectId, path)
     }
 
     override suspend fun startSession(
@@ -60,7 +61,10 @@ class AntiGemDaemonBridge(
         activeSessionId = sessionId
         eventBus.emit(RuntimeEvent.SessionStarted(sessionId))
 
-        val workspaceDir = projectRoots[projectId] ?: File(context.filesDir, "workspaces/$projectId").absolutePath
+        val workspace = checkpoints.ensureWorkspace(projectId)
+        checkpoints.createCheckpoint(projectId, workspace)
+        val before = checkpoints.snapshot(workspace)
+        val workspaceDir = workspace.absolutePath
 
         try {
             val port = AntiGemDaemonClient.cachedActivePort ?: 1234
@@ -116,9 +120,10 @@ class AntiGemDaemonBridge(
                 }
             }
 
-            val pending = checkpoints.pendingChanges(projectId)
-            if (pending.isNotEmpty()) {
-                eventBus.emit(RuntimeEvent.FilesChanged(sessionId, pending))
+            val paths = checkpoints.changedFiles(workspace, before)
+            checkpoints.saveChangedPaths(projectId, paths)
+            if (paths.isNotEmpty()) {
+                eventBus.emit(RuntimeEvent.FilesChanged(sessionId, checkpoints.buildChangeDetails(projectId, workspace, paths)))
             }
             eventBus.emit(RuntimeEvent.SessionCompleted(sessionId))
         } catch (e: Exception) {
@@ -223,11 +228,56 @@ class AntiGemDaemonBridge(
         }
     }
 
-    override suspend fun undoLastChanges(projectId: String): Boolean = checkpoints.undoLast(projectId)
-    override suspend fun acceptLastChanges(projectId: String) = checkpoints.acceptLast(projectId)
-    override suspend fun loadPendingChanges(projectId: String): List<ChangeItem> = checkpoints.pendingChanges(projectId)
-    override suspend fun undoFileChange(projectId: String, path: String): Boolean = checkpoints.undoFile(projectId, path)
-    override suspend fun acceptFileChange(projectId: String, path: String): Boolean = checkpoints.acceptFile(projectId, path)
+    override suspend fun undoLastChanges(projectId: String): Boolean = withContext(Dispatchers.IO) {
+        val checkpoint = checkpoints.checkpointDir(projectId)
+        val backup = File(checkpoint, "project")
+        val paths = checkpoints.readChangedPaths(projectId)
+        if (!backup.isDirectory || paths.isEmpty()) return@withContext false
+        val workspace = checkpoints.ensureWorkspace(projectId)
+        paths.forEach { restore(workspace, backup, it) }
+        checkpoint.deleteRecursively()
+        true
+    }
+
+    override suspend fun acceptLastChanges(projectId: String): Unit = withContext(Dispatchers.IO) {
+        checkpoints.checkpointDir(projectId).deleteRecursively()
+        Unit
+    }
+
+    override suspend fun loadPendingChanges(projectId: String): List<ChangeItem> = withContext(Dispatchers.IO) {
+        val paths = checkpoints.readChangedPaths(projectId)
+        if (paths.isEmpty()) emptyList() else checkpoints.buildChangeDetails(projectId, checkpoints.ensureWorkspace(projectId), paths)
+    }
+
+    override suspend fun undoFileChange(projectId: String, path: String): Boolean = withContext(Dispatchers.IO) {
+        if (path !in checkpoints.readChangedPaths(projectId)) return@withContext false
+        restore(checkpoints.ensureWorkspace(projectId), File(checkpoints.checkpointDir(projectId), "project"), path)
+        checkpoints.removeChangedPath(projectId, path)
+        true
+    }
+
+    override suspend fun acceptFileChange(projectId: String, path: String): Boolean = withContext(Dispatchers.IO) {
+        if (path !in checkpoints.readChangedPaths(projectId)) return@withContext false
+        val workspace = checkpoints.ensureWorkspace(projectId)
+        val backup = File(checkpoints.checkpointDir(projectId), "project")
+        val current = checkpoints.safeWorkspaceFile(workspace, path)
+        val baseline = checkpoints.safeWorkspaceFile(backup, path)
+        if (current.isFile) {
+            baseline.parentFile?.mkdirs()
+            current.copyTo(baseline, overwrite = true)
+        } else baseline.delete()
+        checkpoints.removeChangedPath(projectId, path)
+        true
+    }
+
+    private fun restore(workspace: File, backup: File, path: String) {
+        val target = checkpoints.safeWorkspaceFile(workspace, path)
+        val original = checkpoints.safeWorkspaceFile(backup, path)
+        if (original.isFile) {
+            target.parentFile?.mkdirs()
+            original.copyTo(target, overwrite = true)
+        } else target.delete()
+    }
 
     /**
      * Executes a terminal command on the AntiGem daemon.
@@ -238,11 +288,11 @@ class AntiGemDaemonBridge(
         cwd: String,
         onOutputChunk: ((String) -> Unit)? = null,
     ): DaemonCommandResult {
-        val workspaceDir = projectRoots[projectId] ?: File(context.filesDir, "workspaces/$projectId").absolutePath
-        val targetCwd = if (cwd.startsWith("/workspace")) {
-            workspaceDir + cwd.removePrefix("/workspace")
-        } else {
-            cwd
+        val workspaceDir = projectRoots[projectId] ?: checkpoints.ensureWorkspace(projectId).absolutePath
+        val targetCwd = when {
+            cwd.startsWith("/workspace") -> workspaceDir + cwd.removePrefix("/workspace")
+            cwd.isBlank() -> workspaceDir
+            else -> cwd
         }
         return AntiGemDaemonClient.executeCommand(
             command = command,
