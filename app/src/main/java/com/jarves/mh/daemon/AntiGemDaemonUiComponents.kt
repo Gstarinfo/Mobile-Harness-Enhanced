@@ -220,7 +220,7 @@ fun AntiGemConnectDialog(
         confirmButton = {},
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.st_cancel))
+                Text(stringResource(R.string.action_cancel))
             }
         },
     )

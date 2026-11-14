@@ -499,6 +499,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onCancelAndroidBuild = viewModel::cancelAndroidBuild,
             onCleanAndroid = viewModel::cleanAndroidProject,
             onInstallAndroidTools = { viewModel.installDevStack(DevStack.ANDROID) },
+            onOpenAntiGemConnectDialog = viewModel::openAntiGemConnectDialog,
         )
         else -> RootScreenHost(state, viewModel, projectsListState)
     }
@@ -1177,7 +1178,7 @@ private fun RuntimeSetupPromptScreen(
     onSelectRuntimeMode: (com.jarves.mh.daemon.RuntimeMode) -> Unit = {},
     onRefreshDaemon: () -> Unit = {},
     onStartAntiGemService: () -> Unit = {},
-    onConfigureDaemon: (String, String) -> Unit = { _, _ -> },
+    onConfigureDaemon: (String, String, String) -> Unit = { _, _, _ -> },
 ) {
     val context = LocalContext.current
     val activityManager = context.getSystemService(ActivityManager::class.java)
@@ -4538,6 +4539,7 @@ private fun WorkspaceScreen(
     onCancelAndroidBuild: () -> Unit,
     onCleanAndroid: () -> Unit,
     onInstallAndroidTools: () -> Unit,
+    onOpenAntiGemConnectDialog: () -> Unit = {},
 ) {
     // Leaving while a terminal command runs asks whether to stop it or keep it running.
     var confirmLeaveTerminal by rememberSaveable { mutableStateOf(false) }
@@ -4960,7 +4962,7 @@ private fun WorkspaceScreen(
                         themeMode = state.themeMode,
                         title = stringResource(R.string.workspace_project_terminal),
                         subtitle = daemonSubtitle,
-                        onSubtitleClick = if (isSharedMode) viewModel::openAntiGemConnectDialog else null,
+                        onSubtitleClick = if (isSharedMode) onOpenAntiGemConnectDialog else null,
                         promptUser = if (isSharedMode) "antigem@pocket" else "root@pocket",
                         liveOutput = state.projectTerminalLiveOutput,
                         currentCommand = state.projectTerminalCommand,
