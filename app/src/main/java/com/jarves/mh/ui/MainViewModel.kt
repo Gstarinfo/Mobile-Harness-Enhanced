@@ -785,54 +785,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val (output, exitCode) = withContext(Dispatchers.IO) {
                 runCatching {
-                    if (!installer.isInstalled()) {
-                        return@runCatching str(R.string.vm_linux_not_ready) to 1
-                    }
-                    val runtime = installer.installedRuntime()
-                    val workspace = File(getApplication<Application>().filesDir, "workspaces/terminal").apply { mkdirs() }
-                    val preparedCommand = prepareInteractiveShellCommand(command)
-                    val proc = installer.process(
-                        proot = runtime.proot,
-                        rootfs = runtime.rootfs,
-                        workspace = workspace,
-                        environment = emptyMap(),
-                        guestCommand = listOf("/usr/bin/bash", "-c", preparedCommand),
-                    )
-                    terminalProcess = proc
-                    val native = proc as? NativeSpawnProcess
-                    var offset = 0L
-                    val streamed = StringBuilder()
-                    var autoConfirmed = false
-                    while (proc.isAlive || (native?.outputFile?.length() ?: 0L) > offset) {
-                        val file = native?.outputFile
-                        val available = (file?.length() ?: 0L) - offset
-                        if (file == null || available <= 0) {
-                            Thread.sleep(50)
-                            continue
-                        }
-                        val bytes = ByteArray(minOf(available, 16L * 1024).toInt())
-                        val count = RandomAccessFile(file, "r").use { input ->
-                            input.seek(offset)
-                            input.read(bytes)
-                        }
-                        if (count > 0) {
-                            offset += count
-                            streamed.append(bytes.decodeToString(0, count))
-                            _terminalLiveOutput.value = sanitizeTerminalOutput(streamed.toString())
-                                .trimEnd()
-                                .takeLast(MAX_PROJECT_TERMINAL_OUTPUT)
-                            if (!autoConfirmed && shouldAutoConfirmPackageCommand(command, streamed.toString())) {
-                                proc.outputStream.write("y\n".toByteArray())
-                                proc.outputStream.flush()
-                                autoConfirmed = true
+                    if (isSharedModeActive()) {
+                        val activeCwd = "/workspace"
+                        val res = antiGemDaemonBridge.runTerminalCommand(
+                            projectId = "terminal",
+                            command = command,
+                            cwd = activeCwd,
+                        ) { chunk ->
+                            _terminalLiveOutput.update { current ->
+                                sanitizeTerminalOutput(current + chunk)
+                                    .takeLast(MAX_PROJECT_TERMINAL_OUTPUT)
                             }
                         }
+                        val finalOut = sanitizeTerminalOutput(res.output).trim()
+                        finalOut to res.exitCode
+                    } else {
+                        if (!installer.isInstalled()) {
+                            return@runCatching str(R.string.vm_linux_not_ready) to 1
+                        }
+                        if (!installer.isStandaloneRootfsValid()) {
+                            return@runCatching str(R.string.vm_linux_not_ready) to 1
+                        }
+                        val runtime = installer.installedRuntime()
+                        val workspace = File(getApplication<Application>().filesDir, "workspaces/terminal").apply { mkdirs() }
+                        val preparedCommand = prepareInteractiveShellCommand(command)
+                        val proc = installer.process(
+                            proot = runtime.proot,
+                            rootfs = runtime.rootfs,
+                            workspace = workspace,
+                            environment = emptyMap(),
+                            guestCommand = listOf("/usr/bin/bash", "-c", preparedCommand),
+                        )
+                        terminalProcess = proc
+                        val native = proc as? NativeSpawnProcess
+                        var offset = 0L
+                        val streamed = StringBuilder()
+                        var autoConfirmed = false
+                        while (proc.isAlive || (native?.outputFile?.length() ?: 0L) > offset) {
+                            val file = native?.outputFile
+                            val available = (file?.length() ?: 0L) - offset
+                            if (file == null || available <= 0) {
+                                Thread.sleep(50)
+                                continue
+                            }
+                            val bytes = ByteArray(minOf(available, 16L * 1024).toInt())
+                            val count = RandomAccessFile(file, "r").use { input ->
+                                input.seek(offset)
+                                input.read(bytes)
+                            }
+                            if (count > 0) {
+                                offset += count
+                                streamed.append(bytes.decodeToString(0, count))
+                                _terminalLiveOutput.value = sanitizeTerminalOutput(streamed.toString())
+                                    .trimEnd()
+                                    .takeLast(MAX_PROJECT_TERMINAL_OUTPUT)
+                                if (!autoConfirmed && shouldAutoConfirmPackageCommand(command, streamed.toString())) {
+                                    proc.outputStream.write("y\n".toByteArray())
+                                    proc.outputStream.flush()
+                                    autoConfirmed = true
+                                }
+                            }
+                        }
+                        val exit = proc.waitFor()
+                        runCatching { proc.outputStream.close() }
+                        val out = sanitizeTerminalOutput(streamed.toString()).trim()
+                        val finalOut = if (out.isNotEmpty() || exit == 0) out else str(R.string.vm_process_exited_code, exit)
+                        finalOut to exit
                     }
-                    val exit = proc.waitFor()
-                    runCatching { proc.outputStream.close() }
-                    val out = sanitizeTerminalOutput(streamed.toString()).trim()
-                    val finalOut = if (out.isNotEmpty() || exit == 0) out else str(R.string.vm_process_exited_code, exit)
-                    finalOut to exit
                 }.getOrElse { str(R.string.vm_error_with_message, it.message.orEmpty()) to 1 }
             }
             _terminalLines.update { it + TerminalOutputLine(command = command, output = output, exitCode = exitCode) }
@@ -844,10 +863,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendTerminalInput(text: String) {
+        if (isSharedModeActive()) {
+            viewModelScope.launch(Dispatchers.IO) { antiGemDaemonBridge.sendTerminalInput(text) }
+            return
+        }
         sendProcessInput(terminalProcess, text)
     }
 
     fun interruptTerminalCommand() {
+        if (isSharedModeActive()) {
+            viewModelScope.launch(Dispatchers.IO) { antiGemDaemonBridge.interruptTerminalCommand() }
+            return
+        }
         interruptProcess(terminalProcess)
     }
 
@@ -972,7 +999,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun sendProjectTerminalInput(text: String) {
-        if (isSharedModeActive()) return
+        if (isSharedModeActive()) {
+            viewModelScope.launch(Dispatchers.IO) { antiGemDaemonBridge.sendTerminalInput(text) }
+            return
+        }
         sendProcessInput(projectTerminalProcess, text)
     }
 

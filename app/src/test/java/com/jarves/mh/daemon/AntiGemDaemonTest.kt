@@ -57,7 +57,7 @@ class AntiGemDaemonTest {
 
     @Test
     fun candidatePortsAndConstants() {
-        assertEquals(listOf(1234, 1236), AntiGemDaemonClient.CANDIDATE_PORTS)
+        assertEquals(listOf(1234, 1236, 8765, 8767), AntiGemDaemonClient.CANDIDATE_PORTS)
         assertEquals(500, AntiGemDaemonClient.HEALTH_TIMEOUT_MS)
         assertTrue(AntiGemDaemonClient.KNOWN_PACKAGES.contains("com.antigem"))
         assertTrue(AntiGemDaemonClient.KNOWN_PACKAGES.contains("com.termux"))
@@ -119,5 +119,14 @@ class AntiGemDaemonTest {
 
         // Clean up
         AntiGemDaemonClient.setCachedPort(null)
+    }
+
+    @Test
+    fun terminalEndpointsAndFallbacks() {
+        assertEquals("http://127.0.0.1:8765/api/terminal/send", AntiGemDaemonClient.getEndpoint("/api/terminal/send", 8765))
+        assertEquals("http://127.0.0.1:8765/api/terminal/read", AntiGemDaemonClient.getEndpoint("/api/terminal/read", 8765))
+        assertEquals("http://127.0.0.1:1234/api/health", AntiGemDaemonClient.getEndpoint("/api/health", 1234))
+        assertTrue(AntiGemDaemonClient.CANDIDATE_PORTS.contains(8765))
+        assertTrue(AntiGemDaemonClient.CANDIDATE_PORTS.contains(8767))
     }
 }

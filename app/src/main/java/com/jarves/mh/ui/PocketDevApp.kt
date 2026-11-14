@@ -2673,6 +2673,14 @@ private fun RootScreenHost(
         QuickTerminalSheet(
             onDismiss = { showQuickTerminal = false },
         ) {
+            val isSharedMode = viewModel.isSharedModeActive()
+            val daemonSubtitle = if (isSharedMode) {
+                val host = state.daemonDiscovery.activeHost.ifBlank { "localhost" }
+                val port = state.daemonDiscovery.activePort ?: 1234
+                "AntiGem Daemon · $host:$port"
+            } else {
+                stringResource(R.string.ws_terminal_linux_subtitle)
+            }
             TerminalScreen(
                 lines = terminalLines,
                 isRunning = isTerminalRunning,
@@ -2682,6 +2690,8 @@ private fun RootScreenHost(
                 onClear = viewModel::clearTerminal,
                 onToggleTheme = viewModel::toggleTheme,
                 themeMode = state.themeMode,
+                subtitle = daemonSubtitle,
+                promptUser = if (isSharedMode) "antigem@pocket" else "root@pocket",
                 liveOutput = terminalLiveOutput,
                 currentCommand = terminalCurrentCommand,
                 showThemeAction = false,
@@ -4914,27 +4924,42 @@ private fun WorkspaceScreen(
                     onOpenWithFile = onOpenWithFile,
                     onInstallApk = onInstallApk,
                 )
-                WorkspaceTab.TERMINAL -> TerminalScreen(
-                    lines = state.projectTerminalLines,
-                    isRunning = state.projectTerminalRunning,
-                    onRun = onTerminalRun,
-                    onInput = onTerminalInput,
-                    onInterrupt = onTerminalInterrupt,
-                    onClear = onTerminalClear,
-                    onToggleTheme = {},
-                    themeMode = state.themeMode,
-                    title = stringResource(R.string.workspace_project_terminal),
-                    subtitle = "${state.projectTerminalCwd} · Ubuntu PRoot",
-                    liveOutput = state.projectTerminalLiveOutput,
-                    currentCommand = state.projectTerminalCommand,
-                    commandDraft = state.projectTerminalDraft,
-                    onCommandDraftConsumed = onTerminalDraftConsumed,
-                    promptPath = state.projectTerminalCwd,
-                    onStop = onTerminalStop,
-                    showThemeAction = false,
-                    showQuickCommands = false,
-                    compactHeader = true,
-                )
+                WorkspaceTab.TERMINAL -> {
+                    val isSharedMode = when (state.runtimeMode) {
+                        com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON -> true
+                        com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT -> state.daemonDiscovery.isAvailable
+                        com.jarves.mh.daemon.RuntimeMode.STANDALONE_PROOT -> false
+                    }
+                    val daemonSubtitle = if (isSharedMode) {
+                        val host = state.daemonDiscovery.activeHost.ifBlank { "localhost" }
+                        val port = state.daemonDiscovery.activePort ?: 1234
+                        "${state.projectTerminalCwd} · AntiGem ($host:$port)"
+                    } else {
+                        "${state.projectTerminalCwd} · Ubuntu PRoot"
+                    }
+                    TerminalScreen(
+                        lines = state.projectTerminalLines,
+                        isRunning = state.projectTerminalRunning,
+                        onRun = onTerminalRun,
+                        onInput = onTerminalInput,
+                        onInterrupt = onTerminalInterrupt,
+                        onClear = onTerminalClear,
+                        onToggleTheme = {},
+                        themeMode = state.themeMode,
+                        title = stringResource(R.string.workspace_project_terminal),
+                        subtitle = daemonSubtitle,
+                        promptUser = if (isSharedMode) "antigem@pocket" else "root@pocket",
+                        liveOutput = state.projectTerminalLiveOutput,
+                        currentCommand = state.projectTerminalCommand,
+                        commandDraft = state.projectTerminalDraft,
+                        onCommandDraftConsumed = onTerminalDraftConsumed,
+                        promptPath = state.projectTerminalCwd,
+                        onStop = onTerminalStop,
+                        showThemeAction = false,
+                        showQuickCommands = false,
+                        compactHeader = true,
+                    )
+                }
                 WorkspaceTab.CHANGES -> ChangesTab(
                     state.changes,
                     onUndoChanges,

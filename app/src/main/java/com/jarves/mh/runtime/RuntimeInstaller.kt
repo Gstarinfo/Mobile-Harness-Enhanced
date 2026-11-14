@@ -1523,13 +1523,19 @@ class RuntimeInstaller(private val context: Context) {
                     Os.symlink(destination, link.absolutePath)
                 }
             }
-            File(targetRootfs, "usr/bin/env").canExecute() &&
-                File(targetRootfs, "usr/bin/bash").canExecute() &&
-                File(targetRootfs, "lib/ld-linux-aarch64.so.1").exists()
+            val envOk = File(targetRootfs, "usr/bin/env").let { it.exists() && it.canExecute() }
+            val bashOk = File(targetRootfs, "usr/bin/bash").let { it.exists() && it.canExecute() }
+            val dynamicLinkerOk = File(targetRootfs, "lib/ld-linux-aarch64.so.1").exists() ||
+                File(targetRootfs, "usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1").exists() ||
+                File(targetRootfs, "lib/aarch64-linux-gnu/ld-linux-aarch64.so.1").exists() ||
+                File(targetRootfs, "usr/lib/ld-linux-aarch64.so.1").exists()
+            envOk && bashOk && dynamicLinkerOk
         }.onFailure {
             android.util.Log.e("RuntimeInstaller", "Could not repair Linux compatibility links", it)
         }.getOrDefault(false)
     }
+
+    fun isStandaloneRootfsValid(): Boolean = ensureRootfsCompatibilityLinks()
 
     private fun isValidCoreRootfs(targetRootfs: File): Boolean =
         ensureRootfsCompatibilityLinks(targetRootfs) &&
@@ -1583,7 +1589,7 @@ class RuntimeInstaller(private val context: Context) {
         ptyRows: Int = 40,
         ptyColumns: Int = 120,
     ): Process {
-        check(ensureRootfsCompatibilityLinks()) { "Core runtime has an invalid Linux filesystem layout" }
+        check(isSharedModeActive() || ensureRootfsCompatibilityLinks()) { "Core runtime has an invalid Linux filesystem layout" }
         require(
             guestWorkspacePath == "/workspace" ||
                 Regex("^/workspace/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$").matches(guestWorkspacePath),

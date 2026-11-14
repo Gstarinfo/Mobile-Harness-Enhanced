@@ -110,6 +110,7 @@ fun TerminalScreen(
     commandDraft: String? = null,
     onCommandDraftConsumed: () -> Unit = {},
     promptPath: String = "/workspace",
+    promptUser: String = "root@pocket",
     onStop: (() -> Unit)? = null,
     showThemeAction: Boolean = false,
     showQuickCommands: Boolean = true,
@@ -351,7 +352,7 @@ fun TerminalScreen(
 
                             lines.forEach { item ->
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    TerminalCommandPrompt(promptPath = terminalPromptPath, command = item.command, isDark = isDark)
+                                    TerminalCommandPrompt(promptPath = terminalPromptPath, command = item.command, promptUser = promptUser, isDark = isDark)
                                     if (item.output.isNotEmpty()) {
                                         Text(
                                             text = sanitizeTerminalOutput(item.output),
@@ -366,7 +367,7 @@ fun TerminalScreen(
                             }
 
                             if (isRunning && currentCommand != null) {
-                                TerminalCommandPrompt(promptPath = terminalPromptPath, command = currentCommand, isDark = isDark)
+                                TerminalCommandPrompt(promptPath = terminalPromptPath, command = currentCommand, promptUser = promptUser, isDark = isDark)
                             }
 
                             if (liveOutput.isNotBlank()) {
@@ -386,7 +387,7 @@ fun TerminalScreen(
                         // empty until the user types. A permanent prompt/cursor here
                         // changed the console height and made auto-scroll look like a
                         // full terminal refresh on every blink.
-                        val prefix = if (isRunning) "" else "root@pocket:$terminalPromptPath# "
+                        val prefix = if (isRunning) "" else "$promptUser:$terminalPromptPath# "
                         val prefixVisualTransformation = remember(prefix, isDark) {
                             VisualTransformation { text ->
                                 val transformed = buildAnnotatedString {
@@ -536,13 +537,18 @@ private fun TerminalIconKeyButton(icon: androidx.compose.ui.graphics.vector.Imag
 }
 
 @Composable
-private fun TerminalCommandPrompt(promptPath: String, command: String, isDark: Boolean = true) {
+private fun TerminalCommandPrompt(
+    promptPath: String,
+    command: String,
+    promptUser: String = "root@pocket",
+    isDark: Boolean = true,
+) {
     val promptGreen = if (isDark) PocketGreen else Color(0xFF0D7A3E)
     val commandColor = if (isDark) Color(0xFFF0F6FC) else MaterialTheme.colorScheme.onSurface
-    val promptText = remember(promptPath, command, isDark) {
+    val promptText = remember(promptPath, command, promptUser, isDark) {
         buildAnnotatedString {
             withStyle(SpanStyle(color = promptGreen, fontWeight = FontWeight.Bold)) {
-                append("root@pocket:$promptPath# ")
+                append("$promptUser:$promptPath# ")
             }
             withStyle(SpanStyle(color = commandColor, fontWeight = FontWeight.SemiBold)) {
                 append(command)

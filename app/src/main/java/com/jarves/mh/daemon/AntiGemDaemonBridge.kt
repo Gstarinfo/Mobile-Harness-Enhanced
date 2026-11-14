@@ -299,6 +299,10 @@ class AntiGemDaemonBridge(
         )
     }
 
+    suspend fun sendTerminalInput(text: String) {
+        AntiGemDaemonClient.sendInput(text)
+    }
+
     suspend fun stopTerminalCommand() {
         AntiGemDaemonClient.stopExecution(signal = 15)
     }
