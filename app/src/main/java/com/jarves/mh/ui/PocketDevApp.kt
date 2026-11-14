@@ -313,6 +313,9 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
     if (state.showAntiGemFallbackDialog) {
         com.jarves.mh.daemon.AntiGemFallbackDialog(
             installed = state.daemonDiscovery.installedPackage != null,
+            customHost = state.daemonDiscovery.customHost,
+            customPort = state.daemonDiscovery.customPort,
+            onConfigureDaemon = viewModel::configureDaemonConnection,
             onStartService = viewModel::startAntiGemService,
             onSwitchToStandalone = viewModel::switchToStandaloneMode,
             onRetry = viewModel::retryDaemonConnection,
@@ -356,6 +359,7 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             onSelectRuntimeMode = viewModel::setRuntimeMode,
             onRefreshDaemon = viewModel::checkDaemonStatus,
             onStartAntiGemService = viewModel::startAntiGemService,
+            onConfigureDaemon = viewModel::configureDaemonConnection,
         )
         state.startupStage == StartupStage.INSTALLING && state.showDetailedSetupProgress ->
             RuntimeInstallationScreen(
@@ -1163,6 +1167,7 @@ private fun RuntimeSetupPromptScreen(
     onSelectRuntimeMode: (com.jarves.mh.daemon.RuntimeMode) -> Unit = {},
     onRefreshDaemon: () -> Unit = {},
     onStartAntiGemService: () -> Unit = {},
+    onConfigureDaemon: (String, String) -> Unit = { _, _ -> },
 ) {
     val context = LocalContext.current
     val activityManager = context.getSystemService(ActivityManager::class.java)
@@ -1358,6 +1363,7 @@ private fun RuntimeSetupPromptScreen(
                     onSelectMode = onSelectRuntimeMode,
                     onRefreshDaemon = onRefreshDaemon,
                     onStartService = onStartAntiGemService,
+                    onConfigureDaemon = onConfigureDaemon,
                 )
 
                 Spacer(Modifier.height(20.dp))
@@ -2658,6 +2664,7 @@ private fun RootScreenHost(
                     onSetRuntimeMode = viewModel::setRuntimeMode,
                     onRefreshDaemonStatus = viewModel::checkDaemonStatus,
                     onStartAntiGemService = viewModel::startAntiGemService,
+                    onConfigureDaemonConnection = viewModel::configureDaemonConnection,
                 )
             }
         }

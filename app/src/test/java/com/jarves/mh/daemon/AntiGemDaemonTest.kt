@@ -92,4 +92,32 @@ class AntiGemDaemonTest {
         assertEquals(0, result.exitCode)
         assertEquals("/workspace/project1", result.cwd)
     }
+
+    @Test
+    fun customHostAndPortConfiguration() {
+        AntiGemDaemonClient.configure("192.168.1.50", 8080)
+        assertEquals("192.168.1.50", AntiGemDaemonClient.customHost)
+        assertEquals(8080, AntiGemDaemonClient.customPort)
+        assertEquals("http://192.168.1.50:8080/execute", AntiGemDaemonClient.getEndpoint("/execute"))
+        assertEquals("http://192.168.1.50:8080/cancel", AntiGemDaemonClient.getEndpoint("cancel"))
+
+        // Reset to default
+        AntiGemDaemonClient.configure(null, null)
+        assertEquals("127.0.0.1", AntiGemDaemonClient.customHost)
+        assertNull(AntiGemDaemonClient.customPort)
+        assertEquals("http://127.0.0.1:1234/health", AntiGemDaemonClient.getEndpoint("/health", 1234))
+    }
+
+    @Test
+    fun cachedPortWithCustomHost() {
+        AntiGemDaemonClient.setCachedPort(9000, "10.0.2.2")
+        assertEquals(9000, AntiGemDaemonClient.cachedActivePort)
+        assertEquals("10.0.2.2", AntiGemDaemonClient.cachedActiveHost)
+        assertEquals(DaemonStatus.AVAILABLE, AntiGemDaemonClient.cachedStatus)
+        assertTrue(AntiGemDaemonClient.isDaemonCachedAvailable())
+        assertEquals("http://10.0.2.2:9000/session", AntiGemDaemonClient.getEndpoint("/session"))
+
+        // Clean up
+        AntiGemDaemonClient.setCachedPort(null)
+    }
 }

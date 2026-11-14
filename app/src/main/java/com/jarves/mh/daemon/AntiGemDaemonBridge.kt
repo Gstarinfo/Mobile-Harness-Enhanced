@@ -67,8 +67,7 @@ class AntiGemDaemonBridge(
         val workspaceDir = workspace.absolutePath
 
         try {
-            val port = AntiGemDaemonClient.cachedActivePort ?: 1234
-            val sessionEndpoint = "http://127.0.0.1:$port/session"
+            val sessionEndpoint = AntiGemDaemonClient.getEndpoint("/session")
 
             val payload = JSONObject().apply {
                 put("sessionId", sessionId)
@@ -192,10 +191,9 @@ class AntiGemDaemonBridge(
     }
 
     override suspend fun respondToApproval(request: ToolRequest, approved: Boolean) {
-        val port = AntiGemDaemonClient.cachedActivePort ?: 1234
         withContext(Dispatchers.IO) {
             runCatching {
-                val url = URL("http://127.0.0.1:$port/approval")
+                val url = URL(AntiGemDaemonClient.getEndpoint("/approval"))
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 2000

@@ -150,17 +150,21 @@
     <string name="runtime_mode_standalone">Standalone (Ubuntu PRoot)</string>
     <string name="runtime_mode_standalone_desc">Runs in a fully isolated local Ubuntu PRoot environment.</string>
     <string name="antigem_daemon_status">AntiGem Daemon</string>
-    <string name="antigem_daemon_available">Available (Port %1$d)</string>
-    <string name="antigem_daemon_unavailable">Not responding on 1234/1236</string>
-    <string name="antigem_daemon_checking">Checking localhost…</string>
+    <string name="antigem_daemon_available">Available (%1$s:%2$d)</string>
+    <string name="antigem_daemon_unavailable">Not responding on %1$s:%2$s</string>
+    <string name="antigem_daemon_checking">Checking %1$s…</string>
     <string name="antigem_not_installed">AntiGem is not installed</string>
     <string name="antigem_fallback_title">AntiGem Daemon Unreachable</string>
-    <string name="antigem_fallback_stopped_body">AntiGem is installed on your device, but the background daemon is not currently responding on localhost:1234 or 1236.</string>
+    <string name="antigem_fallback_stopped_body">AntiGem is installed on your device, but the background daemon is not currently responding.</string>
     <string name="antigem_fallback_missing_body">Shared Mode is selected, but AntiGem is not installed on this device. Install AntiGem to use Shared Mode, or switch to Standalone PRoot mode.</string>
     <string name="antigem_action_start">Start AntiGem Service</string>
     <string name="antigem_action_switch_standalone">Switch to Standalone PRoot</string>
     <string name="antigem_action_retry">Retry Connection</string>
     <string name="antigem_detected_title">AntiGem Daemon Detected!</string>
-    <string name="antigem_detected_desc">AntiGem is running on localhost:%1$d. Shared Mode can execute coding tasks directly without downloading the ~1.5 GB Linux rootfs.</string>
+    <string name="antigem_detected_desc">AntiGem is running on %1$s:%2$d. Shared Mode can execute coding tasks directly without downloading the ~1.5 GB Linux rootfs.</string>
     <string name="antigem_skip_download">Use Shared Runtime (No Download)</string>
+    <string name="antigem_custom_connection">Custom Host &amp; Port</string>
+    <string name="antigem_host_label">Hostname / IP</string>
+    <string name="antigem_port_label">Port (blank for auto 1234/1236)</string>
+    <string name="antigem_save_connection">Save &amp; Connect</string>
 </resources>

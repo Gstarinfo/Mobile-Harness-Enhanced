@@ -54,6 +54,14 @@ class AppPreferences(private val context: Context) {
             ?: com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT.stableId
         set(value) { preferences.edit().putString("runtime_mode", value).apply() }
 
+    var daemonHost: String
+        get() = preferences.getString("daemon_host", "127.0.0.1") ?: "127.0.0.1"
+        set(value) { preferences.edit().putString("daemon_host", value).apply() }
+
+    var daemonPort: String
+        get() = preferences.getString("daemon_port", "") ?: ""
+        set(value) { preferences.edit().putString("daemon_port", value).apply() }
+
     var antigravityModel: String
         get() = preferences.getString("agent_antigravity_model", "") ?: ""
         set(value) { preferences.edit().putString("agent_antigravity_model", value).apply() }

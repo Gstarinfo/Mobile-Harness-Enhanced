@@ -524,6 +524,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showWhatsNew = preferences.onboardingComplete && preferences.whatsNewSeenVersionCode < BuildConfig.VERSION_CODE,
             backupFeatureSeen = preferences.backupFeatureSeen,
             runtimeMode = com.jarves.mh.daemon.RuntimeMode.fromStored(preferences.runtimeMode),
+            daemonDiscovery = com.jarves.mh.daemon.DaemonDiscoveryState(
+                customHost = preferences.daemonHost,
+                customPort = preferences.daemonPort,
+                activeHost = preferences.daemonHost,
+            ),
         ),
     ).also {
         if (!preferences.onboardingComplete) preferences.whatsNewSeenVersionCode = BuildConfig.VERSION_CODE
@@ -564,7 +569,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun checkDaemonStatusInternal() {
         _state.update { it.copy(daemonDiscovery = it.daemonDiscovery.copy(isChecking = true)) }
         val discovery = withContext(Dispatchers.IO) {
-            com.jarves.mh.daemon.AntiGemDaemonClient.discover(getApplication())
+            com.jarves.mh.daemon.AntiGemDaemonClient.discover(
+                context = getApplication(),
+                hostOverride = preferences.daemonHost,
+                portOverride = preferences.daemonPort.toIntOrNull(),
+            )
         }
         _state.update {
             it.copy(
@@ -572,6 +581,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 showAntiGemFallbackDialog = it.runtimeMode == com.jarves.mh.daemon.RuntimeMode.SHARED_DAEMON && !discovery.isAvailable,
             )
         }
+    }
+
+    fun configureDaemonConnection(host: String, port: String) {
+        val trimmedHost = host.trim().ifBlank { "127.0.0.1" }
+        val trimmedPort = port.trim()
+        val portInt = trimmedPort.toIntOrNull()
+        preferences.daemonHost = trimmedHost
+        preferences.daemonPort = trimmedPort
+        com.jarves.mh.daemon.AntiGemDaemonClient.configure(trimmedHost, portInt)
+        _state.update {
+            it.copy(
+                daemonDiscovery = it.daemonDiscovery.copy(
+                    customHost = trimmedHost,
+                    customPort = trimmedPort,
+                    activeHost = trimmedHost,
+                ),
+            )
+        }
+        checkDaemonStatus()
     }
 
     fun checkDaemonStatus() {
@@ -2163,8 +2191,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun bootstrap() {
+        com.jarves.mh.daemon.AntiGemDaemonClient.configure(
+            host = preferences.daemonHost,
+            port = preferences.daemonPort.toIntOrNull(),
+        )
         val discovery = withContext(Dispatchers.IO) {
-            com.jarves.mh.daemon.AntiGemDaemonClient.discover(getApplication())
+            com.jarves.mh.daemon.AntiGemDaemonClient.discover(
+                context = getApplication(),
+                hostOverride = preferences.daemonHost,
+                portOverride = preferences.daemonPort.toIntOrNull(),
+            )
         }
         _state.update {
             it.copy(

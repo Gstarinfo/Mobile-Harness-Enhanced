@@ -22,6 +22,18 @@ object AntiGemDaemonClient {
     val KNOWN_PACKAGES = listOf("com.antigem", "com.termux")
 
     @Volatile
+    var customHost: String = "127.0.0.1"
+        private set
+
+    @Volatile
+    var customPort: Int? = null
+        private set
+
+    @Volatile
+    var cachedActiveHost: String = "127.0.0.1"
+        private set
+
+    @Volatile
     var cachedActivePort: Int? = null
         private set
 
@@ -29,15 +41,32 @@ object AntiGemDaemonClient {
     var cachedStatus: DaemonStatus = DaemonStatus.CHECKING
         private set
 
+    fun configure(host: String?, port: Int?) {
+        customHost = if (!host.isNullOrBlank()) host.trim() else "127.0.0.1"
+        customPort = if (port != null && port > 0) port else null
+    }
+
     fun isDaemonCachedAvailable(): Boolean =
         cachedStatus == DaemonStatus.AVAILABLE && cachedActivePort != null
+
+    fun getEndpoint(path: String, portOverride: Int? = null, hostOverride: String? = null): String {
+        val host = (hostOverride ?: cachedActiveHost).ifBlank { customHost.ifBlank { "127.0.0.1" } }
+        val port = portOverride ?: cachedActivePort ?: customPort ?: 1234
+        val normalizedPath = if (path.startsWith("/")) path else "/$path"
+        return "http://$host:$port$normalizedPath"
+    }
 
     /**
      * Pings a specific port's /health endpoint with a 500ms timeout.
      */
-    suspend fun pingPort(port: Int, timeoutMs: Int = HEALTH_TIMEOUT_MS): Boolean = withContext(Dispatchers.IO) {
+    suspend fun pingPort(
+        port: Int,
+        host: String = cachedActiveHost.ifBlank { customHost.ifBlank { "127.0.0.1" } },
+        timeoutMs: Int = HEALTH_TIMEOUT_MS,
+    ): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            val url = URL("http://127.0.0.1:$port/health")
+            val h = host.ifBlank { "127.0.0.1" }
+            val url = URL("http://$h:$port/health")
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = timeoutMs
@@ -51,43 +80,60 @@ object AntiGemDaemonClient {
     }
 
     /**
-     * Checks all candidate ports (1234, then 1236) and inspects package installation.
+     * Checks candidate ports and inspects package installation.
      */
-    suspend fun discover(context: Context, timeoutMs: Int = HEALTH_TIMEOUT_MS): DaemonDiscoveryState =
-        withContext(Dispatchers.IO) {
-            val installedPkg = getInstalledAntiGemPackage(context)
-            var activePort: Int? = null
+    suspend fun discover(
+        context: Context,
+        hostOverride: String? = null,
+        portOverride: Int? = null,
+        timeoutMs: Int = HEALTH_TIMEOUT_MS,
+    ): DaemonDiscoveryState = withContext(Dispatchers.IO) {
+        val host = (hostOverride ?: customHost).ifBlank { "127.0.0.1" }
+        val explicitPort = portOverride ?: customPort
+        val installedPkg = getInstalledAntiGemPackage(context)
+        var activePort: Int? = null
 
-            for (port in CANDIDATE_PORTS) {
-                if (pingPort(port, timeoutMs)) {
-                    activePort = port
-                    break
-                }
-            }
-
-            val status = when {
-                activePort != null -> DaemonStatus.AVAILABLE
-                installedPkg != null -> DaemonStatus.UNAVAILABLE
-                else -> DaemonStatus.NOT_INSTALLED
-            }
-
-            cachedActivePort = activePort
-            cachedStatus = status
-
-            DaemonDiscoveryState(
-                status = status,
-                activePort = activePort,
-                installedPackage = installedPkg,
-                lastCheckedMillis = System.currentTimeMillis(),
-                isChecking = false,
-            )
+        val candidatePorts = if (explicitPort != null && explicitPort > 0) {
+            listOf(explicitPort)
+        } else {
+            CANDIDATE_PORTS
         }
+
+        for (port in candidatePorts) {
+            if (pingPort(port = port, host = host, timeoutMs = timeoutMs)) {
+                activePort = port
+                break
+            }
+        }
+
+        val status = when {
+            activePort != null -> DaemonStatus.AVAILABLE
+            installedPkg != null -> DaemonStatus.UNAVAILABLE
+            else -> DaemonStatus.NOT_INSTALLED
+        }
+
+        cachedActiveHost = host
+        cachedActivePort = activePort
+        cachedStatus = status
+
+        DaemonDiscoveryState(
+            status = status,
+            activePort = activePort,
+            activeHost = host,
+            installedPackage = installedPkg,
+            lastCheckedMillis = System.currentTimeMillis(),
+            isChecking = false,
+            customHost = host,
+            customPort = explicitPort?.toString() ?: "",
+        )
+    }
 
     /**
      * Sets cached port directly (used for testing or explicit config).
      */
-    fun setCachedPort(port: Int?) {
+    fun setCachedPort(port: Int?, host: String = "127.0.0.1") {
         cachedActivePort = port
+        cachedActiveHost = host.ifBlank { "127.0.0.1" }
         cachedStatus = if (port != null) DaemonStatus.AVAILABLE else DaemonStatus.UNAVAILABLE
     }
 
@@ -140,17 +186,17 @@ object AntiGemDaemonClient {
         cwd: String,
         env: Map<String, String> = emptyMap(),
         portOverride: Int? = null,
+        hostOverride: String? = null,
         timeoutMs: Int = 120_000,
         onOutputChunk: ((String) -> Unit)? = null,
     ): DaemonCommandResult = withContext(Dispatchers.IO) {
-        val port = portOverride ?: cachedActivePort ?: 1234
+        val endpoint = getEndpoint("/execute", portOverride, hostOverride)
         val requestBody = JSONObject()
             .put("command", command)
             .put("cwd", cwd)
             .put("env", JSONObject(env))
             .toString()
 
-        val endpoint = "http://127.0.0.1:$port/execute"
         val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 5_000
@@ -201,10 +247,14 @@ object AntiGemDaemonClient {
     /**
      * Sends an interrupt or kill signal to the running command on the daemon.
      */
-    suspend fun stopExecution(signal: Int = 2, portOverride: Int? = null): Boolean = withContext(Dispatchers.IO) {
-        val port = portOverride ?: cachedActivePort ?: return@withContext false
+    suspend fun stopExecution(
+        signal: Int = 2,
+        portOverride: Int? = null,
+        hostOverride: String? = null,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val endpoint = getEndpoint("/cancel", portOverride, hostOverride)
         runCatching {
-            val url = URL("http://127.0.0.1:$port/cancel")
+            val url = URL(endpoint)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 1_000

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudQueue
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -29,17 +31,23 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jarves.mh.R
@@ -47,11 +55,15 @@ import com.jarves.mh.R
 @Composable
 fun AntiGemFallbackDialog(
     installed: Boolean,
+    customHost: String = "127.0.0.1",
+    customPort: String = "",
+    onConfigureDaemon: (host: String, port: String) -> Unit = { _, _ -> },
     onStartService: () -> Unit,
     onSwitchToStandalone: () -> Unit,
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var showConfig by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -81,6 +93,29 @@ fun AntiGemFallbackDialog(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (installed) {
+                    TextButton(
+                        onClick = { showConfig = !showConfig },
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            stringResource(R.string.antigem_custom_connection),
+                            fontSize = 12.sp,
+                        )
+                    }
+                    if (showConfig) {
+                        DaemonConnectionConfigCard(
+                            currentHost = customHost,
+                            currentPort = customPort,
+                            onSave = { h, p ->
+                                onConfigureDaemon(h, p)
+                                showConfig = false
+                            },
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -130,14 +165,91 @@ fun AntiGemFallbackDialog(
 }
 
 @Composable
+fun DaemonConnectionConfigCard(
+    currentHost: String,
+    currentPort: String,
+    onSave: (host: String, port: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var hostInput by remember(currentHost) { mutableStateOf(currentHost) }
+    var portInput by remember(currentPort) { mutableStateOf(currentPort) }
+
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.antigem_custom_connection),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedTextField(
+                    value = hostInput,
+                    onValueChange = { hostInput = it },
+                    label = { Text(stringResource(R.string.antigem_host_label), fontSize = 11.sp) },
+                    placeholder = { Text("127.0.0.1", fontSize = 12.sp) },
+                    singleLine = true,
+                    modifier = Modifier.weight(1.4f),
+                )
+                OutlinedTextField(
+                    value = portInput,
+                    onValueChange = { portInput = it.filter(Char::isDigit) },
+                    label = { Text("Port", fontSize = 11.sp) },
+                    placeholder = { Text("1234", fontSize = 12.sp) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = {
+                        hostInput = "127.0.0.1"
+                        portInput = ""
+                        onSave("127.0.0.1", "")
+                    },
+                ) {
+                    Text(stringResource(R.string.st_reset), fontSize = 12.sp)
+                }
+                Spacer(Modifier.width(6.dp))
+                Button(
+                    onClick = {
+                        onSave(hostInput, portInput)
+                    },
+                ) {
+                    Text(stringResource(R.string.antigem_save_connection), fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun RuntimeModeSelectorCard(
     currentMode: RuntimeMode,
     daemonState: DaemonDiscoveryState,
     onSelectMode: (RuntimeMode) -> Unit,
     onRefreshDaemon: () -> Unit,
     onStartService: () -> Unit,
+    onConfigureDaemon: (host: String, port: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
+    var showConfig by remember { mutableStateOf(false) }
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -183,10 +295,21 @@ fun RuntimeModeSelectorCard(
                         )
                         Text(
                             text = when (daemonState.status) {
-                                DaemonStatus.AVAILABLE -> stringResource(R.string.antigem_daemon_available, daemonState.activePort ?: 1234)
-                                DaemonStatus.UNAVAILABLE -> stringResource(R.string.antigem_daemon_unavailable)
+                                DaemonStatus.AVAILABLE -> stringResource(
+                                    R.string.antigem_daemon_available,
+                                    daemonState.activeHost,
+                                    daemonState.activePort ?: 1234,
+                                )
+                                DaemonStatus.UNAVAILABLE -> stringResource(
+                                    R.string.antigem_daemon_unavailable,
+                                    daemonState.customHost,
+                                    daemonState.customPort.ifBlank { "1234/1236" },
+                                )
                                 DaemonStatus.NOT_INSTALLED -> stringResource(R.string.antigem_not_installed)
-                                DaemonStatus.CHECKING -> stringResource(R.string.antigem_daemon_checking)
+                                DaemonStatus.CHECKING -> stringResource(
+                                    R.string.antigem_daemon_checking,
+                                    daemonState.customHost,
+                                )
                             },
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
@@ -205,6 +328,17 @@ fun RuntimeModeSelectorCard(
                         }
                     }
                     IconButton(
+                        onClick = { showConfig = !showConfig },
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Tune,
+                            contentDescription = stringResource(R.string.antigem_custom_connection),
+                            modifier = Modifier.size(18.dp),
+                            tint = if (showConfig) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(
                         onClick = onRefreshDaemon,
                         modifier = Modifier.size(32.dp),
                     ) {
@@ -217,6 +351,17 @@ fun RuntimeModeSelectorCard(
                     }
                 }
             }
+        }
+
+        if (showConfig) {
+            DaemonConnectionConfigCard(
+                currentHost = daemonState.customHost,
+                currentPort = daemonState.customPort,
+                onSave = { h, p ->
+                    onConfigureDaemon(h, p)
+                    showConfig = false
+                },
+            )
         }
 
         // Mode Options Cards

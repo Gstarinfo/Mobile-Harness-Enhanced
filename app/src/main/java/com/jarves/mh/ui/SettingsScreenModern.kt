@@ -149,6 +149,7 @@ fun SettingsScreen(
     onSetRuntimeMode: (com.jarves.mh.daemon.RuntimeMode) -> Unit = {},
     onRefreshDaemonStatus: () -> Unit = {},
     onStartAntiGemService: () -> Unit = {},
+    onConfigureDaemonConnection: (String, String) -> Unit = { _, _ -> },
     showBackupDot: Boolean = false,
     onBackupOpened: () -> Unit = {},
     openBackup: Boolean = false,
@@ -448,6 +449,7 @@ fun SettingsScreen(
                         onSelectMode = onSetRuntimeMode,
                         onRefreshDaemon = onRefreshDaemonStatus,
                         onStartService = onStartAntiGemService,
+                        onConfigureDaemon = onConfigureDaemonConnection,
                     )
                     Spacer(Modifier.height(10.dp))
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
