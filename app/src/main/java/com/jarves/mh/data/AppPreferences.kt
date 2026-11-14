@@ -62,6 +62,10 @@ class AppPreferences(private val context: Context) {
         get() = preferences.getString("daemon_port", "") ?: ""
         set(value) { preferences.edit().putString("daemon_port", value).apply() }
 
+    var daemonDeviceId: String
+        get() = preferences.getString("daemon_device_id", "") ?: ""
+        set(value) { preferences.edit().putString("daemon_device_id", value).apply() }
+
     var antigravityModel: String
         get() = preferences.getString("agent_antigravity_model", "") ?: ""
         set(value) { preferences.edit().putString("agent_antigravity_model", value).apply() }

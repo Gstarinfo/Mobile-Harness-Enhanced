@@ -96,6 +96,10 @@ class AntiGemDaemonBridge(
                 readTimeout = 0 // Streaming, no read timeout
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/x-ndjson, text/event-stream, application/json")
+                val deviceId = AntiGemDaemonClient.cachedDeviceId ?: AntiGemDaemonClient.customDeviceId
+                if (!deviceId.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Id", deviceId)
+                }
                 doOutput = true
             }
             activeConnection = conn

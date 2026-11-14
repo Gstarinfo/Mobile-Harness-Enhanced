@@ -4,20 +4,28 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /**
  * Client for discovering and communicating with the AntiGem daemon on localhost.
+ *
+ * Supported service ports:
+ * - 8765 / 8767: AntiGem LocalTerminalBridge (Termux shell PTY session runner)
+ * - 1234 / 1236: Go IDE Bridge (git & filesystem operations)
+ * Note: Port 1235 / 1237 is Antigravity Web Hub (UI SPA) - not a shell terminal.
  */
 object AntiGemDaemonClient {
-    val CANDIDATE_PORTS = listOf(1234, 1236, 8765, 8767)
-    const val HEALTH_TIMEOUT_MS = 500
+    val CANDIDATE_PORTS = listOf(8765, 8767, 1234, 1236)
+    const val HEALTH_TIMEOUT_MS = 600
 
     val KNOWN_PACKAGES = listOf("com.antigem", "com.termux")
 
@@ -30,6 +38,10 @@ object AntiGemDaemonClient {
         private set
 
     @Volatile
+    var customDeviceId: String? = null
+        private set
+
+    @Volatile
     var cachedActiveHost: String = "127.0.0.1"
         private set
 
@@ -38,12 +50,17 @@ object AntiGemDaemonClient {
         private set
 
     @Volatile
+    var cachedDeviceId: String? = null
+        private set
+
+    @Volatile
     var cachedStatus: DaemonStatus = DaemonStatus.CHECKING
         private set
 
-    fun configure(host: String?, port: Int?) {
+    fun configure(host: String?, port: Int?, deviceId: String? = null) {
         customHost = if (!host.isNullOrBlank()) host.trim() else "127.0.0.1"
         customPort = if (port != null && port > 0) port else null
+        customDeviceId = if (!deviceId.isNullOrBlank()) deviceId.trim() else null
     }
 
     fun isDaemonCachedAvailable(): Boolean =
@@ -51,9 +68,57 @@ object AntiGemDaemonClient {
 
     fun getEndpoint(path: String, portOverride: Int? = null, hostOverride: String? = null): String {
         val host = (hostOverride ?: cachedActiveHost).ifBlank { customHost.ifBlank { "127.0.0.1" } }
-        val port = portOverride ?: cachedActivePort ?: customPort ?: 1234
+        val port = portOverride ?: cachedActivePort ?: customPort ?: 8765
         val normalizedPath = if (path.startsWith("/")) path else "/$path"
         return "http://$host:$port$normalizedPath"
+    }
+
+    /**
+     * Resolves the Device ID required for authenticating with AntiGem's LocalTerminalBridge.
+     */
+    fun resolveDeviceId(context: Context?): String? {
+        val configured = customDeviceId?.takeIf { it.isNotBlank() }
+        if (configured != null) return configured
+
+        val cached = cachedDeviceId?.takeIf { it.isNotBlank() }
+        if (cached != null) return cached
+
+        // 1. Try Settings.Secure.ANDROID_ID from ContentResolver
+        val androidId = runCatching {
+            context?.contentResolver?.let { resolver ->
+                Settings.Secure.getString(resolver, Settings.Secure.ANDROID_ID)
+            }
+        }.getOrNull()?.trim()?.takeIf { it.isNotBlank() }
+
+        if (androidId != null) {
+            cachedDeviceId = androidId
+            return androidId
+        }
+
+        // 2. Try parsing extension-host.log in Termux / AntiGem home directory
+        val logDeviceId = runCatching {
+            val possibleFiles = listOf(
+                File("/data/user/0/com.termux/files/home/extension-host.log"),
+                File("/data/data/com.termux/files/home/extension-host.log"),
+                File(System.getenv("HOME") ?: "", "extension-host.log"),
+            )
+            val regex = Regex("""--device-id\s+([a-zA-Z0-9]+)""")
+            for (f in possibleFiles) {
+                if (f.exists() && f.canRead()) {
+                    val line = f.bufferedReader().use { it.readLine() }
+                    val match = line?.let { regex.find(it) }
+                    if (match != null) return@runCatching match.groupValues[1].trim()
+                }
+            }
+            null
+        }.getOrNull()?.takeIf { it.isNotBlank() }
+
+        if (logDeviceId != null) {
+            cachedDeviceId = logDeviceId
+            return logDeviceId
+        }
+
+        return null
     }
 
     /**
@@ -63,6 +128,7 @@ object AntiGemDaemonClient {
         port: Int,
         host: String = cachedActiveHost.ifBlank { customHost.ifBlank { "127.0.0.1" } },
         timeoutMs: Int = HEALTH_TIMEOUT_MS,
+        deviceId: String? = cachedDeviceId ?: customDeviceId,
     ): Boolean = withContext(Dispatchers.IO) {
         val h = host.ifBlank { "127.0.0.1" }
         val checkPaths = listOf("/api/health", "/health", "/")
@@ -74,10 +140,16 @@ object AntiGemDaemonClient {
                     connectTimeout = timeoutMs
                     readTimeout = timeoutMs
                     instanceFollowRedirects = false
+                    if (!deviceId.isNullOrBlank()) {
+                        setRequestProperty("X-Device-Id", deviceId)
+                    }
                 }
                 val code = conn.responseCode
+                val isAuthRequired = code == 401 && (
+                    conn.getHeaderField("Access-Control-Allow-Headers")?.contains("X-Device-Id", ignoreCase = true) == true
+                )
                 conn.disconnect()
-                code in 200..399
+                code in 200..399 || isAuthRequired
             }.getOrDefault(false)
         }
     }
@@ -89,10 +161,13 @@ object AntiGemDaemonClient {
         context: Context,
         hostOverride: String? = null,
         portOverride: Int? = null,
+        deviceIdOverride: String? = null,
         timeoutMs: Int = HEALTH_TIMEOUT_MS,
     ): DaemonDiscoveryState = withContext(Dispatchers.IO) {
         val host = (hostOverride ?: customHost).ifBlank { "127.0.0.1" }
         val explicitPort = portOverride ?: customPort
+        val explicitDeviceId = deviceIdOverride ?: customDeviceId
+        val resolvedDeviceId = explicitDeviceId?.takeIf { it.isNotBlank() } ?: resolveDeviceId(context)
         val installedPkg = getInstalledAntiGemPackage(context)
         var activePort: Int? = null
 
@@ -103,7 +178,7 @@ object AntiGemDaemonClient {
         }
 
         for (port in candidatePorts) {
-            if (pingPort(port = port, host = host, timeoutMs = timeoutMs)) {
+            if (pingPort(port = port, host = host, timeoutMs = timeoutMs, deviceId = resolvedDeviceId)) {
                 activePort = port
                 break
             }
@@ -117,26 +192,30 @@ object AntiGemDaemonClient {
 
         cachedActiveHost = host
         cachedActivePort = activePort
+        cachedDeviceId = resolvedDeviceId
         cachedStatus = status
 
         DaemonDiscoveryState(
             status = status,
             activePort = activePort,
             activeHost = host,
+            activeDeviceId = resolvedDeviceId,
             installedPackage = installedPkg,
             lastCheckedMillis = System.currentTimeMillis(),
             isChecking = false,
             customHost = host,
             customPort = explicitPort?.toString() ?: "",
+            customDeviceId = explicitDeviceId ?: "",
         )
     }
 
     /**
      * Sets cached port directly (used for testing or explicit config).
      */
-    fun setCachedPort(port: Int?, host: String = "127.0.0.1") {
+    fun setCachedPort(port: Int?, host: String = "127.0.0.1", deviceId: String? = null) {
         cachedActivePort = port
         cachedActiveHost = host.ifBlank { "127.0.0.1" }
+        if (deviceId != null) cachedDeviceId = deviceId
         cachedStatus = if (port != null) DaemonStatus.AVAILABLE else DaemonStatus.UNAVAILABLE
     }
 
@@ -183,9 +262,6 @@ object AntiGemDaemonClient {
 
     /**
      * Executes a command via the AntiGem daemon HTTP bridge.
-     */
-    /**
-     * Executes a command via the AntiGem daemon HTTP bridge.
      * Supports both /execute (streaming bridge) and AntiGem LocalTerminalBridge (/api/terminal/send & /api/terminal/read).
      */
     suspend fun executeCommand(
@@ -194,10 +270,25 @@ object AntiGemDaemonClient {
         env: Map<String, String> = emptyMap(),
         portOverride: Int? = null,
         hostOverride: String? = null,
+        deviceIdOverride: String? = null,
         timeoutMs: Int = 120_000,
         onOutputChunk: ((String) -> Unit)? = null,
     ): DaemonCommandResult = withContext(Dispatchers.IO) {
-        val endpoint = getEndpoint("/execute", portOverride, hostOverride)
+        val effectivePort = portOverride ?: cachedActivePort ?: customPort ?: 8765
+        val effectiveHost = hostOverride ?: cachedActiveHost.ifBlank { customHost.ifBlank { "127.0.0.1" } }
+        val effectiveDeviceId = deviceIdOverride ?: customDeviceId ?: cachedDeviceId
+
+        // Guard: If connected to AGY Hub Web Server (port 1235 / 1237)
+        if (effectivePort == 1235 || effectivePort == 1237) {
+            return@withContext DaemonCommandResult(
+                output = "Error: Port $effectivePort is the Antigravity Hub Web Server (UI), not the Termux Terminal Bridge.\n" +
+                        "Please configure port to 8765 (or 8767) in AntiGem Daemon Settings to connect to the Termux terminal.",
+                exitCode = 1,
+                cwd = cwd,
+            )
+        }
+
+        val endpoint = getEndpoint("/execute", effectivePort, effectiveHost)
         val requestBody = JSONObject()
             .put("command", command)
             .put("cwd", cwd)
@@ -211,6 +302,9 @@ object AntiGemDaemonClient {
                 readTimeout = timeoutMs
                 setRequestProperty("Content-Type", "application/json")
                 setRequestProperty("Accept", "application/json, text/plain")
+                if (!effectiveDeviceId.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Id", effectiveDeviceId)
+                }
                 doOutput = true
             }
 
@@ -239,6 +333,20 @@ object AntiGemDaemonClient {
             connection.disconnect()
 
             val rawOutput = responseText.toString()
+
+            // Guard against Web UI HTML fallbacks
+            val isHtml = rawOutput.trimStart().startsWith("<!doctype html", ignoreCase = true) ||
+                    rawOutput.trimStart().startsWith("<html", ignoreCase = true) ||
+                    rawOutput.contains("antigravity-cli")
+            if (isHtml) {
+                return@runCatching DaemonCommandResult(
+                    output = "Error: Port $effectivePort responded with Antigravity Web UI HTML instead of a shell terminal.\n" +
+                            "Please connect to the AntiGem Termux Terminal Bridge on port 8765.",
+                    exitCode = 1,
+                    cwd = cwd,
+                )
+            }
+
             val parsedJson = runCatching { JSONObject(rawOutput.trim()) }.getOrNull()
 
             if (parsedJson != null && parsedJson.has("exitCode")) {
@@ -260,12 +368,15 @@ object AntiGemDaemonClient {
 
         // Fallback for AntiGem's LocalTerminalBridge (/api/terminal/send & /api/terminal/read)
         val fallbackResult = runCatching {
-            val sendUrl = getEndpoint("/api/terminal/send", portOverride, hostOverride)
+            val sendUrl = getEndpoint("/api/terminal/send", effectivePort, effectiveHost)
             val sendConn = (URL(sendUrl).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 4_000
                 readTimeout = 4_000
                 setRequestProperty("Content-Type", "application/json")
+                if (!effectiveDeviceId.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Id", effectiveDeviceId)
+                }
                 doOutput = true
             }
             val sendBody = JSONObject()
@@ -274,11 +385,24 @@ object AntiGemDaemonClient {
                 .toString()
             sendConn.outputStream.use { it.write(sendBody.toByteArray(Charsets.UTF_8)) }
             val sendCode = sendConn.responseCode
+            val sendErrorText = if (sendCode !in 200..299) {
+                sendConn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+            } else ""
             sendConn.disconnect()
+
+            if (sendCode == 401) {
+                return@runCatching DaemonCommandResult(
+                    output = "Error: 401 Unauthorized from AntiGem Terminal Bridge at $effectiveHost:$effectivePort.\n" +
+                            "Please verify the Device ID in Settings > AntiGem Daemon Connection.\n$sendErrorText".trim(),
+                    exitCode = 401,
+                    cwd = cwd,
+                )
+            }
+
             if (sendCode !in 200..299) return@runCatching null
 
             // Poll /api/terminal/read for command completion
-            val readUrl = getEndpoint("/api/terminal/read", portOverride, hostOverride)
+            val readUrl = getEndpoint("/api/terminal/read", effectivePort, effectiveHost)
             var finished = false
             var finalOutput = ""
             var lastExitCode = 0
@@ -286,12 +410,15 @@ object AntiGemDaemonClient {
             val startTime = System.currentTimeMillis()
 
             while (!finished && (System.currentTimeMillis() - startTime) < timeoutMs) {
-                kotlinx.coroutines.delay(150)
+                delay(150)
                 val readConn = (URL(readUrl).openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 3_000
                     readTimeout = 3_000
                     setRequestProperty("Content-Type", "application/json")
+                    if (!effectiveDeviceId.isNullOrBlank()) {
+                        setRequestProperty("X-Device-Id", effectiveDeviceId)
+                    }
                     doOutput = true
                 }
                 val readBody = JSONObject()
@@ -335,10 +462,8 @@ object AntiGemDaemonClient {
 
         if (fallbackResult != null) return@withContext fallbackResult
 
-        val activeHost = hostOverride ?: cachedActiveHost.ifBlank { customHost.ifBlank { "127.0.0.1" } }
-        val activePort = portOverride ?: cachedActivePort ?: customPort ?: 1234
         DaemonCommandResult(
-            output = "Error: AntiGem daemon at $activeHost:$activePort did not respond. Ensure AntiGem or termux is running.",
+            output = "Error: AntiGem daemon at $effectiveHost:$effectivePort did not respond. Ensure AntiGem or termux is running with bridge enabled.",
             exitCode = 1,
             cwd = cwd,
         )
@@ -351,7 +476,9 @@ object AntiGemDaemonClient {
         text: String,
         portOverride: Int? = null,
         hostOverride: String? = null,
+        deviceIdOverride: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
+        val effectiveDeviceId = deviceIdOverride ?: customDeviceId ?: cachedDeviceId
         val inputOk = runCatching {
             val endpoint = getEndpoint("/input", portOverride, hostOverride)
             val body = JSONObject().put("input", text).toString()
@@ -360,6 +487,9 @@ object AntiGemDaemonClient {
                 connectTimeout = 2_000
                 readTimeout = 2_000
                 setRequestProperty("Content-Type", "application/json")
+                if (!effectiveDeviceId.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Id", effectiveDeviceId)
+                }
                 doOutput = true
                 outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             }
@@ -378,6 +508,9 @@ object AntiGemDaemonClient {
                 connectTimeout = 2_000
                 readTimeout = 2_000
                 setRequestProperty("Content-Type", "application/json")
+                if (!effectiveDeviceId.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Id", effectiveDeviceId)
+                }
                 doOutput = true
             }
             sendConn.outputStream.use {
@@ -396,7 +529,9 @@ object AntiGemDaemonClient {
         signal: Int = 2,
         portOverride: Int? = null,
         hostOverride: String? = null,
+        deviceIdOverride: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
+        val effectiveDeviceId = deviceIdOverride ?: customDeviceId ?: cachedDeviceId
         val endpoint = getEndpoint("/cancel", portOverride, hostOverride)
         val cancelOk = runCatching {
             val url = URL(endpoint)
@@ -405,6 +540,9 @@ object AntiGemDaemonClient {
                 connectTimeout = 2_000
                 readTimeout = 2_000
                 setRequestProperty("Content-Type", "application/json")
+                if (!effectiveDeviceId.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Id", effectiveDeviceId)
+                }
                 doOutput = true
                 outputStream.use { it.write("""{"signal":$signal}""".toByteArray(Charsets.UTF_8)) }
             }
@@ -415,15 +553,18 @@ object AntiGemDaemonClient {
 
         if (cancelOk) return@withContext true
 
-        // Fallback for AntiGem REST terminal: send control key (e.g. CTRL+C)
+        // Fallback for AntiGem REST terminal: send control key (e.g. "c" for CTRL+C)
         runCatching {
-            val ctrlKey = if (signal == 2) "CTRL+C" else "SIGTERM"
+            val ctrlKey = if (signal == 2) "c" else "c"
             val killUrl = URL(getEndpoint("/api/terminal/send", portOverride, hostOverride))
             val killConn = (killUrl.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 2_000
                 readTimeout = 2_000
                 setRequestProperty("Content-Type", "application/json")
+                if (!effectiveDeviceId.isNullOrBlank()) {
+                    setRequestProperty("X-Device-Id", effectiveDeviceId)
+                }
                 doOutput = true
             }
             killConn.outputStream.use {

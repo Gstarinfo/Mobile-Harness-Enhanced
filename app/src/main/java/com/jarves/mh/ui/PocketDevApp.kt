@@ -315,11 +315,21 @@ fun PocketDevApp(viewModel: MainViewModel = viewModel()) {
             installed = state.daemonDiscovery.installedPackage != null,
             customHost = state.daemonDiscovery.customHost,
             customPort = state.daemonDiscovery.customPort,
+            customDeviceId = state.daemonDiscovery.customDeviceId,
             onConfigureDaemon = viewModel::configureDaemonConnection,
             onStartService = viewModel::startAntiGemService,
             onSwitchToStandalone = viewModel::switchToStandaloneMode,
             onRetry = viewModel::retryDaemonConnection,
             onDismiss = viewModel::dismissAntiGemFallbackDialog,
+        )
+    }
+    if (state.showAntiGemConnectDialog) {
+        com.jarves.mh.daemon.AntiGemConnectDialog(
+            daemonState = state.daemonDiscovery,
+            onConfigure = viewModel::configureDaemonConnection,
+            onDismiss = viewModel::dismissAntiGemConnectDialog,
+            onRefresh = viewModel::checkDaemonStatus,
+            onStartService = viewModel::startAntiGemService,
         )
     }
     when {
@@ -2665,6 +2675,7 @@ private fun RootScreenHost(
                     onRefreshDaemonStatus = viewModel::checkDaemonStatus,
                     onStartAntiGemService = viewModel::startAntiGemService,
                     onConfigureDaemonConnection = viewModel::configureDaemonConnection,
+                    onOpenAntiGemConnectDialog = viewModel::openAntiGemConnectDialog,
                 )
             }
         }
@@ -2676,7 +2687,7 @@ private fun RootScreenHost(
             val isSharedMode = viewModel.isSharedModeActive()
             val daemonSubtitle = if (isSharedMode) {
                 val host = state.daemonDiscovery.activeHost.ifBlank { "localhost" }
-                val port = state.daemonDiscovery.activePort ?: 1234
+                val port = state.daemonDiscovery.activePort ?: 8765
                 "AntiGem Daemon · $host:$port"
             } else {
                 stringResource(R.string.ws_terminal_linux_subtitle)
@@ -2691,6 +2702,7 @@ private fun RootScreenHost(
                 onToggleTheme = viewModel::toggleTheme,
                 themeMode = state.themeMode,
                 subtitle = daemonSubtitle,
+                onSubtitleClick = if (isSharedMode) viewModel::openAntiGemConnectDialog else null,
                 promptUser = if (isSharedMode) "antigem@pocket" else "root@pocket",
                 liveOutput = terminalLiveOutput,
                 currentCommand = terminalCurrentCommand,
@@ -4932,7 +4944,7 @@ private fun WorkspaceScreen(
                     }
                     val daemonSubtitle = if (isSharedMode) {
                         val host = state.daemonDiscovery.activeHost.ifBlank { "localhost" }
-                        val port = state.daemonDiscovery.activePort ?: 1234
+                        val port = state.daemonDiscovery.activePort ?: 8765
                         "${state.projectTerminalCwd} · AntiGem ($host:$port)"
                     } else {
                         "${state.projectTerminalCwd} · Ubuntu PRoot"
@@ -4948,6 +4960,7 @@ private fun WorkspaceScreen(
                         themeMode = state.themeMode,
                         title = stringResource(R.string.workspace_project_terminal),
                         subtitle = daemonSubtitle,
+                        onSubtitleClick = if (isSharedMode) viewModel::openAntiGemConnectDialog else null,
                         promptUser = if (isSharedMode) "antigem@pocket" else "root@pocket",
                         liveOutput = state.projectTerminalLiveOutput,
                         currentCommand = state.projectTerminalCommand,

@@ -149,7 +149,8 @@ fun SettingsScreen(
     onSetRuntimeMode: (com.jarves.mh.daemon.RuntimeMode) -> Unit = {},
     onRefreshDaemonStatus: () -> Unit = {},
     onStartAntiGemService: () -> Unit = {},
-    onConfigureDaemonConnection: (String, String) -> Unit = { _, _ -> },
+    onConfigureDaemonConnection: (String, String, String) -> Unit = { _, _, _ -> },
+    onOpenAntiGemConnectDialog: () -> Unit = {},
     showBackupDot: Boolean = false,
     onBackupOpened: () -> Unit = {},
     openBackup: Boolean = false,
@@ -429,6 +430,15 @@ fun SettingsScreen(
                         if (index != DevStack.entries.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     }
                 }
+            }
+
+            item {
+                com.jarves.mh.daemon.AntiGemDaemonSettingsCard(
+                    daemonState = state.daemonDiscovery,
+                    onOpenConnectDialog = onOpenAntiGemConnectDialog,
+                    onRefresh = onRefreshDaemonStatus,
+                    onStartService = onStartAntiGemService,
+                )
             }
 
             item {

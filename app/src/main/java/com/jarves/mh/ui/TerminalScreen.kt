@@ -115,6 +115,7 @@ fun TerminalScreen(
     showThemeAction: Boolean = false,
     showQuickCommands: Boolean = true,
     compactHeader: Boolean = false,
+    onSubtitleClick: (() -> Unit)? = null,
 ) {
     var commandInput by remember { mutableStateOf(TextFieldValue()) }
     var commandHistory by remember { mutableStateOf(emptyList<String>()) }
@@ -198,7 +199,11 @@ fun TerminalScreen(
                             Icon(Icons.Default.Terminal, contentDescription = null, tint = PocketOrange, modifier = Modifier.size(18.dp))
                         }
                         Spacer(Modifier.width(11.dp))
-                        Column(Modifier.weight(1f)) {
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .then(if (onSubtitleClick != null) Modifier.clickable(onClick = onSubtitleClick) else Modifier),
+                        ) {
                             Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text(subtitle, fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -249,7 +254,9 @@ fun TerminalScreen(
                                 )
                             }
                             Spacer(Modifier.width(10.dp))
-                            Column {
+                            Column(
+                                modifier = if (onSubtitleClick != null) Modifier.clickable(onClick = onSubtitleClick) else Modifier,
+                            ) {
                                 Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
                                 Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }

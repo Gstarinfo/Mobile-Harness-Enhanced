@@ -1,5 +1,6 @@
 package com.jarves.mh.daemon
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -27,18 +28,20 @@ class AntiGemDaemonTest {
     fun daemonDiscoveryStateAvailability() {
         val available = DaemonDiscoveryState(
             status = DaemonStatus.AVAILABLE,
-            activePort = 1234,
-            installedPackage = "com.antigem",
+            activePort = 8765,
+            activeDeviceId = "72717fa3b694b4a6",
+            installedPackage = "com.termux",
             lastCheckedMillis = 1000L,
             isChecking = false,
         )
         assertTrue(available.isAvailable)
+        assertEquals("72717fa3b694b4a6", available.activeDeviceId)
 
-        val availablePort1236 = DaemonDiscoveryState(
+        val availablePort1234 = DaemonDiscoveryState(
             status = DaemonStatus.AVAILABLE,
-            activePort = 1236,
+            activePort = 1234,
         )
-        assertTrue(availablePort1236.isAvailable)
+        assertTrue(availablePort1234.isAvailable)
 
         val unavailable = DaemonDiscoveryState(
             status = DaemonStatus.UNAVAILABLE,
@@ -57,21 +60,23 @@ class AntiGemDaemonTest {
 
     @Test
     fun candidatePortsAndConstants() {
-        assertEquals(listOf(1234, 1236, 8765, 8767), AntiGemDaemonClient.CANDIDATE_PORTS)
-        assertEquals(500, AntiGemDaemonClient.HEALTH_TIMEOUT_MS)
+        // 8765 & 8767 (Termux Terminal Bridge) take priority over 1234 & 1236 (IDE Bridge)
+        assertEquals(listOf(8765, 8767, 1234, 1236), AntiGemDaemonClient.CANDIDATE_PORTS)
+        assertEquals(600, AntiGemDaemonClient.HEALTH_TIMEOUT_MS)
         assertTrue(AntiGemDaemonClient.KNOWN_PACKAGES.contains("com.antigem"))
         assertTrue(AntiGemDaemonClient.KNOWN_PACKAGES.contains("com.termux"))
     }
 
     @Test
     fun cachedPortUpdatesAvailability() {
-        AntiGemDaemonClient.setCachedPort(1234)
-        assertEquals(1234, AntiGemDaemonClient.cachedActivePort)
+        AntiGemDaemonClient.setCachedPort(8765, deviceId = "test-device-id")
+        assertEquals(8765, AntiGemDaemonClient.cachedActivePort)
+        assertEquals("test-device-id", AntiGemDaemonClient.cachedDeviceId)
         assertEquals(DaemonStatus.AVAILABLE, AntiGemDaemonClient.cachedStatus)
         assertTrue(AntiGemDaemonClient.isDaemonCachedAvailable())
 
-        AntiGemDaemonClient.setCachedPort(1236)
-        assertEquals(1236, AntiGemDaemonClient.cachedActivePort)
+        AntiGemDaemonClient.setCachedPort(1234)
+        assertEquals(1234, AntiGemDaemonClient.cachedActivePort)
         assertEquals(DaemonStatus.AVAILABLE, AntiGemDaemonClient.cachedStatus)
         assertTrue(AntiGemDaemonClient.isDaemonCachedAvailable())
 
@@ -94,25 +99,28 @@ class AntiGemDaemonTest {
     }
 
     @Test
-    fun customHostAndPortConfiguration() {
-        AntiGemDaemonClient.configure("192.168.1.50", 8080)
+    fun customHostPortAndDeviceIdConfiguration() {
+        AntiGemDaemonClient.configure("192.168.1.50", 8765, "custom-id-123")
         assertEquals("192.168.1.50", AntiGemDaemonClient.customHost)
-        assertEquals(8080, AntiGemDaemonClient.customPort)
-        assertEquals("http://192.168.1.50:8080/execute", AntiGemDaemonClient.getEndpoint("/execute"))
-        assertEquals("http://192.168.1.50:8080/cancel", AntiGemDaemonClient.getEndpoint("cancel"))
+        assertEquals(8765, AntiGemDaemonClient.customPort)
+        assertEquals("custom-id-123", AntiGemDaemonClient.customDeviceId)
+        assertEquals("http://192.168.1.50:8765/execute", AntiGemDaemonClient.getEndpoint("/execute"))
+        assertEquals("http://192.168.1.50:8765/cancel", AntiGemDaemonClient.getEndpoint("cancel"))
 
         // Reset to default
-        AntiGemDaemonClient.configure(null, null)
+        AntiGemDaemonClient.configure(null, null, null)
         assertEquals("127.0.0.1", AntiGemDaemonClient.customHost)
         assertNull(AntiGemDaemonClient.customPort)
-        assertEquals("http://127.0.0.1:1234/health", AntiGemDaemonClient.getEndpoint("/health", 1234))
+        assertNull(AntiGemDaemonClient.customDeviceId)
+        assertEquals("http://127.0.0.1:8765/health", AntiGemDaemonClient.getEndpoint("/health", 8765))
     }
 
     @Test
     fun cachedPortWithCustomHost() {
-        AntiGemDaemonClient.setCachedPort(9000, "10.0.2.2")
+        AntiGemDaemonClient.setCachedPort(9000, "10.0.2.2", "dev-456")
         assertEquals(9000, AntiGemDaemonClient.cachedActivePort)
         assertEquals("10.0.2.2", AntiGemDaemonClient.cachedActiveHost)
+        assertEquals("dev-456", AntiGemDaemonClient.cachedDeviceId)
         assertEquals(DaemonStatus.AVAILABLE, AntiGemDaemonClient.cachedStatus)
         assertTrue(AntiGemDaemonClient.isDaemonCachedAvailable())
         assertEquals("http://10.0.2.2:9000/session", AntiGemDaemonClient.getEndpoint("/session"))
@@ -128,5 +136,27 @@ class AntiGemDaemonTest {
         assertEquals("http://127.0.0.1:1234/api/health", AntiGemDaemonClient.getEndpoint("/api/health", 1234))
         assertTrue(AntiGemDaemonClient.CANDIDATE_PORTS.contains(8765))
         assertTrue(AntiGemDaemonClient.CANDIDATE_PORTS.contains(8767))
+    }
+
+    @Test
+    fun agyHubPortBlockedFromExecute() = runBlocking {
+        // Port 1235 is AGY Hub Web UI, not a terminal daemon
+        val result1235 = AntiGemDaemonClient.executeCommand(
+            command = "ls",
+            cwd = "/data/data/com.termux/files/home",
+            portOverride = 1235,
+        )
+        assertEquals(1, result1235.exitCode)
+        assertTrue(result1235.output.contains("Antigravity Hub Web Server"))
+        assertTrue(result1235.output.contains("8765"))
+
+        // Port 1237 is also an AGY Hub UI port
+        val result1237 = AntiGemDaemonClient.executeCommand(
+            command = "ls",
+            cwd = "/data/data/com.termux/files/home",
+            portOverride = 1237,
+        )
+        assertEquals(1, result1237.exitCode)
+        assertTrue(result1237.output.contains("Antigravity Hub Web Server"))
     }
 }

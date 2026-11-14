@@ -163,8 +163,20 @@
     <string name="antigem_detected_title">AntiGem Daemon Detected!</string>
     <string name="antigem_detected_desc">AntiGem is running on %1$s:%2$d. Shared Mode can execute coding tasks directly without downloading the ~1.5 GB Linux rootfs.</string>
     <string name="antigem_skip_download">Use Shared Runtime (No Download)</string>
-    <string name="antigem_custom_connection">Custom Host &amp; Port</string>
+    <string name="antigem_custom_connection">Configure Daemon Connection</string>
     <string name="antigem_host_label">Hostname / IP</string>
-    <string name="antigem_port_label">Port (blank for auto 1234/1236)</string>
+    <string name="antigem_port_label">Port (8765 for Termux, 1234 for IDE)</string>
+    <string name="antigem_device_id_label">Device ID (Authentication Token)</string>
+    <string name="antigem_device_id_hint">Auto-detected from Termux</string>
+    <string name="antigem_auto_detect">Auto-Detect</string>
+    <string name="antigem_test_connection">Test</string>
+    <string name="antigem_test_success">Connected to Termux Bridge (:8765)</string>
+    <string name="antigem_test_failed">Connection failed</string>
+    <string name="antigem_test_unauthorized">401 Unauthorized: Check Device ID</string>
+    <string name="antigem_test_agy_hub">AGY Web UI (Port 1235) - Switch to 8765</string>
     <string name="antigem_save_connection">Save &amp; Connect</string>
+    <string name="antigem_connect_dialog_title">AntiGem Daemon Connection</string>
+    <string name="antigem_card_title">AntiGem Daemon (Termux)</string>
+    <string name="antigem_card_desc">Connect to Termux PTY Terminal on port 8765 with zero duplicate rootfs overhead.</string>
+    <string name="antigem_open_config">Configure Connection</string>
 </resources>

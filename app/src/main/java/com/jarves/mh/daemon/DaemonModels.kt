@@ -51,11 +51,13 @@ data class DaemonDiscoveryState(
     val status: DaemonStatus = DaemonStatus.CHECKING,
     val activePort: Int? = null,
     val activeHost: String = "127.0.0.1",
+    val activeDeviceId: String? = null,
     val installedPackage: String? = null,
     val lastCheckedMillis: Long = 0L,
     val isChecking: Boolean = false,
     val customHost: String = "127.0.0.1",
     val customPort: String = "",
+    val customDeviceId: String = "",
 ) {
     val isAvailable: Boolean get() = status == DaemonStatus.AVAILABLE && activePort != null
 }

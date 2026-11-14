@@ -411,6 +411,7 @@ data class AppUiState(
     val runtimeMode: com.jarves.mh.daemon.RuntimeMode = com.jarves.mh.daemon.RuntimeMode.AUTO_DETECT,
     val daemonDiscovery: com.jarves.mh.daemon.DaemonDiscoveryState = com.jarves.mh.daemon.DaemonDiscoveryState(),
     val showAntiGemFallbackDialog: Boolean = false,
+    val showAntiGemConnectDialog: Boolean = false,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -573,6 +574,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 context = getApplication(),
                 hostOverride = preferences.daemonHost,
                 portOverride = preferences.daemonPort.toIntOrNull(),
+                deviceIdOverride = preferences.daemonDeviceId,
             )
         }
         _state.update {
@@ -583,18 +585,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun configureDaemonConnection(host: String, port: String) {
+    fun configureDaemonConnection(host: String, port: String, deviceId: String = "") {
         val trimmedHost = host.trim().ifBlank { "127.0.0.1" }
         val trimmedPort = port.trim()
+        val trimmedDeviceId = deviceId.trim()
         val portInt = trimmedPort.toIntOrNull()
         preferences.daemonHost = trimmedHost
         preferences.daemonPort = trimmedPort
-        com.jarves.mh.daemon.AntiGemDaemonClient.configure(trimmedHost, portInt)
+        preferences.daemonDeviceId = trimmedDeviceId
+        com.jarves.mh.daemon.AntiGemDaemonClient.configure(trimmedHost, portInt, trimmedDeviceId)
         _state.update {
             it.copy(
                 daemonDiscovery = it.daemonDiscovery.copy(
                     customHost = trimmedHost,
                     customPort = trimmedPort,
+                    customDeviceId = trimmedDeviceId,
                     activeHost = trimmedHost,
                 ),
             )
@@ -612,6 +617,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun switchToStandaloneMode() {
         setRuntimeMode(com.jarves.mh.daemon.RuntimeMode.STANDALONE_PROOT)
+    }
+
+    fun openAntiGemConnectDialog() {
+        _state.update { it.copy(showAntiGemConnectDialog = true) }
+    }
+
+    fun dismissAntiGemConnectDialog() {
+        _state.update { it.copy(showAntiGemConnectDialog = false) }
     }
 
     fun dismissAntiGemFallbackDialog() {
@@ -2224,12 +2237,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         com.jarves.mh.daemon.AntiGemDaemonClient.configure(
             host = preferences.daemonHost,
             port = preferences.daemonPort.toIntOrNull(),
+            deviceId = preferences.daemonDeviceId,
         )
         val discovery = withContext(Dispatchers.IO) {
             com.jarves.mh.daemon.AntiGemDaemonClient.discover(
                 context = getApplication(),
                 hostOverride = preferences.daemonHost,
                 portOverride = preferences.daemonPort.toIntOrNull(),
+                deviceIdOverride = preferences.daemonDeviceId,
             )
         }
         _state.update {
